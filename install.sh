@@ -17,7 +17,7 @@ echo "Installed and loaded launch agent: $PLIST_DEST"
 echo "Use 'launchctl list | grep claude-session-ping' to confirm"
 
 ENV_FILE="${CLAUDE_SESSION_PING_ENV_FILE:-$HOME/.claude-session-ping.env}"
-if [[ -f "$ENV_FILE" ]] && grep -q '^TELEGRAM_BOT_TOKEN=' "$ENV_FILE"; then
+if [[ -f "$ENV_FILE" ]] && grep -qE '^TELEGRAM_BOT_TOKEN=.+' "$ENV_FILE" && grep -qE '^TELEGRAM_CHAT_ID=.+' "$ENV_FILE"; then
   BOT_PLIST_TEMPLATE="$ROOT/launchd/com.claude-session-ping.telegram-bot.plist"
   BOT_PLIST_DEST="$HOME/Library/LaunchAgents/com.claude-session-ping.telegram-bot.plist"
   sed -e "s|{{PROJECT_DIR}}|$ROOT|g" -e "s|{{HOME_DIR}}|$HOME|g" "$BOT_PLIST_TEMPLATE" >"$BOT_PLIST_DEST"
@@ -30,6 +30,6 @@ if [[ -f "$ENV_FILE" ]] && grep -q '^TELEGRAM_BOT_TOKEN=' "$ENV_FILE"; then
   echo "Installed and loaded Telegram Q&A daemon: $BOT_PLIST_DEST"
   echo "Use 'launchctl list | grep claude-session-ping.telegram-bot' to confirm"
 else
-  echo "TELEGRAM_BOT_TOKEN not found in $ENV_FILE, skipping Telegram Q&A daemon install."
-  echo "Configure it and re-run ./install.sh to enable the Telegram bot."
+  echo "TELEGRAM_BOT_TOKEN and/or TELEGRAM_CHAT_ID not set in $ENV_FILE, skipping Telegram Q&A daemon install."
+  echo "Configure them and re-run ./install.sh to enable the Telegram bot."
 fi
