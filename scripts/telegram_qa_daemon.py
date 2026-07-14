@@ -71,7 +71,7 @@ def telegram_request(token: str, method: str, params: dict, timeout: int) -> dic
 def send_message(token: str, chat_id: str, text: str) -> None:
     try:
         telegram_request(token, "sendMessage", {"chat_id": chat_id, "text": text}, timeout=10)
-    except urllib.error.URLError as exc:
+    except (urllib.error.URLError, OSError, json.JSONDecodeError) as exc:
         log(f"sendMessage failed: {exc}")
 
 
@@ -81,7 +81,7 @@ def get_updates(token: str, offset: int | None) -> list[dict]:
         params["offset"] = offset
     try:
         result = telegram_request(token, "getUpdates", params, timeout=POLL_TIMEOUT_SECONDS + 10)
-    except urllib.error.URLError as exc:
+    except (urllib.error.URLError, OSError, json.JSONDecodeError) as exc:
         log(f"getUpdates failed: {exc}")
         return []
     return result.get("result", [])
@@ -119,7 +119,7 @@ def openai_answer(api_key: str, model: str, state: dict, question: str) -> str:
         with urllib.request.urlopen(req, timeout=20) as resp:
             result = json.loads(resp.read().decode())
         return result["output"][0]["content"][0]["text"].strip()
-    except (urllib.error.URLError, KeyError, IndexError) as exc:
+    except (urllib.error.URLError, OSError, json.JSONDecodeError, KeyError, IndexError) as exc:
         log(f"openai request failed: {exc}")
         return "Sorry, I couldn't reach the answering service right now."
 
@@ -161,18 +161,21 @@ def run() -> None:
     log("daemon started, polling for updates")
     offset = None
     while True:
-        updates = get_updates(token, offset)
-        for update in updates:
-            offset = update["update_id"] + 1
-            message = update.get("message", {})
-            chat_id = str(message.get("chat", {}).get("id", ""))
-            text = message.get("text", "")
-            if not text or chat_id != str(allowed_chat_id):
-                continue
-            log(f"question: {text}")
-            reply = answer_question(env, text)
-            log(f"reply: {reply}")
-            send_message(token, chat_id, reply)
+        try:
+            updates = get_updates(token, offset)
+            for update in updates:
+                offset = update["update_id"] + 1
+                message = update.get("message", {})
+                chat_id = str(message.get("chat", {}).get("id", ""))
+                text = message.get("text", "")
+                if not text or chat_id != str(allowed_chat_id):
+                    continue
+                log(f"question: {text}")
+                reply = answer_question(env, text)
+                log(f"reply: {reply}")
+                send_message(token, chat_id, reply)
+        except Exception as exc:  # noqa: BLE001 - defense in depth, must not crash poll loop
+            log(f"unexpected error in poll loop: {exc}")
 
 
 if __name__ == "__main__":
