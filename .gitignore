@@ -5,3 +5,4 @@
 *~
 .env
 .claude-session-ping.env
+.superpowers/
