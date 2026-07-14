@@ -31,11 +31,53 @@ def format_time(epoch: int) -> str:
     return datetime.datetime.fromtimestamp(epoch).strftime("%H:%M")
 
 
+def humanize_delta(seconds: int) -> str:
+    """Human-friendly duration like "5h 53m", "42m", or "under a minute"."""
+    if seconds < 60:
+        return "under a minute"
+    hours, rem = divmod(int(seconds), 3600)
+    minutes = rem // 60
+    if hours:
+        return f"{hours}h {minutes}m"
+    return f"{minutes}m"
+
+
+def extract_output_text(result: dict) -> str | None:
+    """Pull the assistant text out of an OpenAI Responses API result.
+
+    The output list may contain non-message items (e.g. "reasoning") before
+    the message, so scan for the first message/output_text pair.
+    """
+    for item in result.get("output", []):
+        if item.get("type") != "message":
+            continue
+        for part in item.get("content", []):
+            if part.get("type") == "output_text":
+                return part.get("text", "").strip()
+    return None
+
+
 def _target_epoch(base_epoch: int, hhmm: str) -> int:
     dt = datetime.datetime.fromtimestamp(base_epoch)
     hour, minute = (int(x) for x in hhmm.split(":"))
     target = dt.replace(hour=hour, minute=minute, second=0, microsecond=0)
     return int(target.timestamp())
+
+
+def current_window_start(now: int, targets: list[str] = TARGETS) -> int:
+    """Start of the schedule window containing `now`, or 0 if none is active.
+
+    A window opens at each target time and stays active WINDOW_SECONDS.
+    Checks yesterday's targets too, in case a window spans midnight.
+    """
+    latest = 0
+    for day_offset in (-1, 0):
+        base = now + day_offset * 86400
+        for hhmm in targets:
+            ts = _target_epoch(base, hhmm)
+            if ts <= now < ts + WINDOW_SECONDS:
+                latest = max(latest, ts)
+    return latest
 
 
 def next_start_times(now: int, targets: list[str] = TARGETS, count: int = 2) -> list[int]:
@@ -52,18 +94,19 @@ def next_start_times(now: int, targets: list[str] = TARGETS, count: int = 2) -> 
 
 
 INTENT_KEYWORDS = {
-    "next_next_start": ("next next", "after that", "second next"),
-    "next_start": ("next session", "next start", "next window"),
+    "next_next_start": ("next next", "after that", "second next", "one after"),
+    "next_start": ("next session", "next start", "next window", "reset", "next ping", "when can i"),
+    "window_open": ("opened", "open", "began", "since when"),
     "window_end": ("end", "ending", "finish", "over"),
-    "usage": ("usage", "percent", "%", "how much"),
+    "usage": ("usage", "percent", "%", "how much", "elapsed"),
 }
 
-INTENT_ORDER = ("next_next_start", "next_start", "window_end", "usage")
+INTENT_ORDER = ("next_next_start", "next_start", "window_open", "window_end", "usage")
 
 # Keywords that are short/common enough to false-positive as substrings of
 # unrelated words (e.g. "end" inside "weekend", "over" inside "recover").
 # These are matched with word boundaries instead of plain substring `in`.
-_WORD_BOUNDARY_KEYWORDS = {"end", "ending", "finish", "over"}
+_WORD_BOUNDARY_KEYWORDS = {"end", "ending", "finish", "over", "open", "opened", "began"}
 
 
 def match_intent(text: str) -> str:
@@ -88,8 +131,15 @@ def parse_env_text(text: str) -> dict[str, str]:
             continue
         if "=" not in stripped:
             continue
+        if stripped.startswith("export "):
+            stripped = stripped[len("export "):].lstrip()
         key, _, value = stripped.partition("=")
         key = key.strip()
-        value = value.strip().strip("'\"")
+        value = value.strip()
+        if value[:1] in ("'", '"') and len(value) >= 2 and value.endswith(value[0]):
+            value = value[1:-1]
+        else:
+            # Unquoted: zsh treats " #..." as a trailing comment; agree with it.
+            value = value.split(" #", 1)[0].rstrip()
         env[key] = value
     return env

@@ -20,7 +20,10 @@ from pathlib import Path
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from telegram_qa_lib import (  # noqa: E402
+    current_window_start,
+    extract_output_text,
     format_time,
+    humanize_delta,
     match_intent,
     next_start_times,
     parse_env_text,
@@ -87,15 +90,22 @@ def get_updates(token: str, offset: int | None) -> list[dict]:
     return result.get("result", [])
 
 
-def openai_answer(api_key: str, model: str, state: dict, question: str) -> str:
+def openai_answer(api_key: str, model: str, state: dict, question: str, window_start: int = 0) -> str:
     now = int(time.time())
     starts = next_start_times(now)
+    if window_start:
+        window_desc = (
+            f"opened_at={format_time(window_start)}, "
+            f"ends_at={format_time(window_end(window_start))}, "
+            f"elapsed={usage_percent(window_start, now):.0f}%"
+        )
+    else:
+        window_desc = "none active"
     system_prompt = (
         "You are a terse status bot for a Claude Code keepalive scheduler. "
         "Daily windows open at 04:00, 09:00, 14:00, 19:00 and each stays active for 5 hours. "
-        f"Current window: label={state.get('window_label')}, "
-        f"opened_at={format_time(state['window_start']) if state.get('window_start') else 'unknown'}, "
-        f"status={state.get('status')}. "
+        f"Current window: {window_desc}, "
+        f"last_ping_status={state.get('status')}. "
         f"Next start: {format_time(starts[0]) if starts else 'unknown'}. "
         f"Next next start: {format_time(starts[1]) if len(starts) > 1 else 'unknown'}. "
         "Answer the user's question in one short sentence using this data."
@@ -118,8 +128,12 @@ def openai_answer(api_key: str, model: str, state: dict, question: str) -> str:
     try:
         with urllib.request.urlopen(req, timeout=20) as resp:
             result = json.loads(resp.read().decode())
-        return result["output"][0]["content"][0]["text"].strip()
-    except (urllib.error.URLError, OSError, json.JSONDecodeError, KeyError, IndexError) as exc:
+        text = extract_output_text(result)
+        if text:
+            return text
+        log(f"openai response had no message text: {json.dumps(result)[:500]}")
+        return "Sorry, I couldn't reach the answering service right now."
+    except (urllib.error.URLError, OSError, json.JSONDecodeError) as exc:
         log(f"openai request failed: {exc}")
         return "Sorry, I couldn't reach the answering service right now."
 
@@ -129,25 +143,49 @@ def answer_question(env: dict, question: str) -> str:
     now = int(time.time())
     intent = match_intent(question)
 
+    # Prefer the window start recorded by the ping script; if the state file
+    # is missing or stale, infer the active window from the fixed schedule.
+    window_start = state.get("window_start") or current_window_start(now)
+    if window_start and now >= window_end(window_start):
+        window_start = current_window_start(now)
+
     if intent == "usage":
-        pct = usage_percent(state.get("window_start", 0), now)
-        return f"Current window usage: {pct:.0f}% elapsed."
+        if not window_start:
+            starts = next_start_times(now)
+            nxt = f" Next one starts at {format_time(starts[0])}." if starts else ""
+            return f"No session window is active right now.{nxt}"
+        pct = usage_percent(window_start, now)
+        return (
+            f"Current window (opened {format_time(window_start)}) is {pct:.0f}% elapsed, "
+            f"ends around {format_time(window_end(window_start))}."
+        )
+    if intent == "window_open":
+        if not window_start:
+            starts = next_start_times(now)
+            nxt = f" Next one starts at {format_time(starts[0])}." if starts else ""
+            return f"No session window is active right now.{nxt}"
+        return f"Current window opened at {format_time(window_start)} ({humanize_delta(now - window_start)} ago)."
     if intent == "window_end":
-        if not state.get("window_start"):
-            return "No window is currently tracked yet."
-        return f"Current window ends around {format_time(window_end(state['window_start']))}."
+        if not window_start:
+            return "No session window is active right now."
+        end = window_end(window_start)
+        return f"Current window ends around {format_time(end)} ({humanize_delta(end - now)} left)."
     if intent == "next_start":
         starts = next_start_times(now)
-        return f"Next session start time: {format_time(starts[0])}." if starts else "Unknown."
+        if not starts:
+            return "I couldn't work out the next session start time."
+        return f"Next session window starts at {format_time(starts[0])} (in {humanize_delta(starts[0] - now)})."
     if intent == "next_next_start":
         starts = next_start_times(now)
-        return f"Next-next session start time: {format_time(starts[1])}." if len(starts) > 1 else "Unknown."
+        if len(starts) < 2:
+            return "I couldn't work out the session start time after next."
+        return f"The session window after next starts at {format_time(starts[1])} (in {humanize_delta(starts[1] - now)})."
 
     api_key = env.get("OPENAI_API_KEY")
     if not api_key:
         return "I don't recognize that question and no OPENAI_API_KEY is configured."
     model = env.get("OPENAI_MODEL", DEFAULT_OPENAI_MODEL)
-    return openai_answer(api_key, model, state, question)
+    return openai_answer(api_key, model, state, question, window_start)
 
 
 def run() -> None:

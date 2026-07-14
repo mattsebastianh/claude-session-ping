@@ -95,6 +95,7 @@ nothing about the existing behavior changes.
 - **Q&A**: the daemon answers these locally, from a shared state file,
   with no API calls:
   - "what's my usage %?" → time elapsed in the current 5-hour window
+  - "when did this window open?"
   - "when does this window end?"
   - "what's the next session start time?" / "...next next...?"
   Anything else is sent to OpenAI (`gpt-5-nano` by default, override with
