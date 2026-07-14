@@ -31,9 +31,9 @@ fi
 WINDOW_LABEL="${CURRENT_TIME:0:2}:${CURRENT_TIME:2:2}"
 
 write_state() {
-  local status="$1"
+  local ping_status="$1"
   cat >"$STATE_FILE" <<JSON
-{"window_start": $(date '+%s'), "window_label": "${WINDOW_LABEL}", "status": "${status}", "updated_at": $(date '+%s')}
+{"window_start": $(date '+%s'), "window_label": "${WINDOW_LABEL}", "status": "${ping_status}", "updated_at": $(date '+%s')}
 JSON
 }
 
