@@ -133,6 +133,10 @@ committed. When writing design docs or specs in `docs/`, use placeholder
 values (e.g. `sk-exampleReplaceMe`) rather than real credentials; nothing
 in `docs/` is gitignored, since design history is meant to be tracked.
 
+## Changelog
+
+See [CHANGELOG.md](CHANGELOG.md) for the project's release history.
+
 ## Testing
 
 Simulate a trigger without waiting for the real time:
