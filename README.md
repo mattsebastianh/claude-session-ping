@@ -1,5 +1,9 @@
 # claude-session-ping
 
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+[![Platform: macOS](https://img.shields.io/badge/platform-macOS-lightgrey.svg)](https://www.apple.com/macos/)
+[![Shell: zsh](https://img.shields.io/badge/shell-zsh-89e051.svg)](scripts/claude_session_ping.sh)
+
 A macOS `launchd` agent that pings Claude Code on a fixed daily schedule to
 activate/keep alive the 5-hour session usage window — no LLM required to
 decide *when* to fire, only plain system scheduling and shell code.
@@ -50,6 +54,14 @@ cp claude-session-ping.env.example ~/.claude-session-ping.env
 ```
 
 See that file for available options.
+
+## Security
+
+All secrets (Telegram bot token, chat id, OpenAI API key) live only in
+`~/.claude-session-ping.env` / `.env` — both are gitignored and never
+committed. When writing design docs or specs in `docs/`, use placeholder
+values (e.g. `sk-exampleReplaceMe`) rather than real credentials; nothing
+in `docs/` is gitignored, since design history is meant to be tracked.
 
 ## Testing
 
