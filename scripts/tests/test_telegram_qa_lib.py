@@ -71,6 +71,15 @@ class TestMatchIntent(unittest.TestCase):
     def test_none(self):
         self.assertEqual(match_intent("tell me a joke"), "none")
 
+    def test_weekend_does_not_match_window_end(self):
+        self.assertEqual(match_intent("anything happening this weekend?"), "none")
+
+    def test_recover_does_not_match_window_end(self):
+        self.assertEqual(match_intent("did you recover the file"), "none")
+
+    def test_friend_does_not_match_window_end(self):
+        self.assertEqual(match_intent("I have a friend"), "none")
+
 
 class TestParseEnvText(unittest.TestCase):
     def test_parses_simple_pairs(self):

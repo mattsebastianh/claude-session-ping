@@ -6,6 +6,7 @@ can be unit tested without hitting Telegram or OpenAI.
 from __future__ import annotations
 
 import datetime
+import re
 
 TARGETS = ["04:00", "09:00", "14:00", "19:00"]
 WINDOW_SECONDS = 5 * 60 * 60
@@ -59,13 +60,22 @@ INTENT_KEYWORDS = {
 
 INTENT_ORDER = ("next_next_start", "next_start", "window_end", "usage")
 
+# Keywords that are short/common enough to false-positive as substrings of
+# unrelated words (e.g. "end" inside "weekend", "over" inside "recover").
+# These are matched with word boundaries instead of plain substring `in`.
+_WORD_BOUNDARY_KEYWORDS = {"end", "ending", "finish", "over"}
+
 
 def match_intent(text: str) -> str:
     """Return one of INTENT_ORDER's keys, or "none" if nothing matches."""
     lowered = text.lower()
     for intent in INTENT_ORDER:
-        if any(keyword in lowered for keyword in INTENT_KEYWORDS[intent]):
-            return intent
+        for keyword in INTENT_KEYWORDS[intent]:
+            if keyword in _WORD_BOUNDARY_KEYWORDS:
+                if re.search(rf"\b{re.escape(keyword)}\b", lowered):
+                    return intent
+            elif keyword in lowered:
+                return intent
     return "none"
 
 
