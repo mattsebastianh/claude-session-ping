@@ -57,6 +57,36 @@ cp .env.example .env
 See that file for available options, including the optional Telegram
 notifier/Q&A bot described below.
 
+## Testing
+
+Run the unit test suite (pure logic — schedule math, Q&A intent matching,
+env-file parsing — no network calls, no real Claude/Telegram/OpenAI access):
+
+```zsh
+python3 -m unittest discover -s scripts/tests -t .
+```
+
+Simulate a keepalive trigger without waiting for the real time:
+
+```zsh
+CLAUDE_SESSION_PING_MOCK_TIME='09:00' ./scripts/claude_session_ping.sh
+```
+
+Or use `scripts/mock_session_ping.sh`, which does the same but substitutes a
+fake `echo` command for the real Claude ping and prints the resulting log
+from `logs/claude-session-ping.log`:
+
+```zsh
+./scripts/mock_session_ping.sh 09:00
+```
+
+## Uninstall
+
+```zsh
+launchctl unload ~/Library/LaunchAgents/com.claude-session-ping.plist
+rm ~/Library/LaunchAgents/com.claude-session-ping.plist
+```
+
 ## Telegram notifications + Q&A bot (optional)
 
 Get a Telegram message every time a keepalive window opens (or fails to
@@ -104,19 +134,11 @@ nothing about the existing behavior changes.
 
 ### Manual testing
 
-Trigger a one-off notify without waiting for a real window:
+Use either command from [Testing](#testing) above to trigger a mock
+keepalive run — if `TELEGRAM_BOT_TOKEN`/`TELEGRAM_CHAT_ID` are set, it'll
+also send you a real Telegram notification.
 
-```zsh
-CLAUDE_SESSION_PING_MOCK_TIME='09:00' ./scripts/claude_session_ping.sh
-```
-
-Or use the dedicated helper script for the same mock run:
-
-```zsh
-./scripts/mock_session_ping.sh 09:00
-```
-
-Check the daemon is running and see its logs:
+Check the Q&A daemon is running and see its logs:
 
 ```zsh
 launchctl list | grep claude-session-ping.telegram-bot
@@ -136,38 +158,15 @@ rm ~/Library/LaunchAgents/com.claude-session-ping.telegram-bot.plist
 
 All secrets (Telegram bot token, chat id, OpenAI API key) live only in
 the project's `.env` file, or wherever `CLAUDE_SESSION_PING_ENV_FILE` points
-if you override it (e.g. the legacy `~/.claude-session-ping.env` path) —
-both are gitignored and never committed. The `logs/`, `.claude-session-ping/`
-(runtime logs and schedule state), and `docs/` (design docs/specs/plans)
-directories are also gitignored — `docs/` is kept purely as local, private
-scratch space and is never pushed.
+if you override it — both are gitignored and never committed. The
+`logs/`, `.claude-session-ping/` (runtime logs and schedule state), and
+`docs/` (design docs/specs/plans) directories are also gitignored —
+`docs/` is kept purely as local, private scratch space and is never
+pushed.
 
 ## Changelog
 
 See [CHANGELOG.md](CHANGELOG.md) for the project's release history.
-
-## Testing
-
-Simulate a trigger without waiting for the real time:
-
-```zsh
-CLAUDE_SESSION_PING_MOCK_TIME='09:00' ./scripts/claude_session_ping.sh
-```
-
-Or use `scripts/mock_session_ping.sh`, which does the same but substitutes a
-fake `echo` command for the real Claude ping and prints the resulting log
-from `logs/claude-session-ping.log`:
-
-```zsh
-./scripts/mock_session_ping.sh 09:00
-```
-
-## Uninstall
-
-```zsh
-launchctl unload ~/Library/LaunchAgents/com.claude-session-ping.plist
-rm ~/Library/LaunchAgents/com.claude-session-ping.plist
-```
 
 ## License
 
