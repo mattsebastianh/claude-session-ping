@@ -12,7 +12,21 @@ from telegram_qa_lib import WINDOW_SECONDS
 EMPTY_STATE = {"window_start": 0, "window_label": "unknown", "status": "unknown"}
 
 
-class TestAnswerQuestion(unittest.TestCase):
+class NoRealUsageLookup(unittest.TestCase):
+    """Base for tests that answer questions via the state/schedule fallback.
+
+    Without this, answer_question's usage lookup shells out to the real
+    `claude` CLI and answers from this machine's live window instead of the
+    case under test.
+    """
+
+    def setUp(self):
+        usage_patch = patch.object(daemon, "get_usage", return_value=None)
+        usage_patch.start()
+        self.addCleanup(usage_patch.stop)
+
+
+class TestAnswerQuestion(NoRealUsageLookup):
     def test_usage_with_no_state_infers_window_from_schedule(self):
         # 22:07 — inside the 19:00 window (5h => ends 00:00), 62% elapsed.
         now = int(datetime.datetime(2026, 7, 13, 22, 7, 0).timestamp())
@@ -74,7 +88,7 @@ class TestAnswerQuestion(unittest.TestCase):
         self.assertEqual(reply, "Current window (opened 19:00) is 62% elapsed, ends around 00:00.")
 
 
-class TestFallbackPaths(unittest.TestCase):
+class TestFallbackPaths(NoRealUsageLookup):
     def test_unrecognized_question_without_api_key(self):
         with patch.object(daemon, "load_state", return_value=EMPTY_STATE):
             reply = daemon.answer_question({}, "tell me a joke")
@@ -131,6 +145,57 @@ class TestFallbackPaths(unittest.TestCase):
 
         send_message_mock.assert_not_called()
         log_mock.assert_not_called()
+
+
+class TestResolveWindowStart(unittest.TestCase):
+    def test_prefers_real_usage_over_schedule(self):
+        now = int(datetime.datetime(2026, 7, 15, 14, 30, 0).timestamp())
+        resets_at = int(datetime.datetime(2026, 7, 15, 19, 9, 0).timestamp())
+        usage = {"session": {"pct": 5.0, "resets_at": resets_at}, "weekly": None}
+        with patch.object(daemon, "get_usage", return_value=usage), \
+             patch.object(daemon, "load_state", return_value=EMPTY_STATE):
+            self.assertEqual(
+                daemon.resolve_window_start(now),
+                int(datetime.datetime(2026, 7, 15, 14, 9, 0).timestamp()),
+            )
+
+    def test_falls_back_to_schedule_when_usage_unavailable(self):
+        now = int(datetime.datetime(2026, 7, 15, 22, 7, 0).timestamp())
+        with patch.object(daemon, "get_usage", return_value=None), \
+             patch.object(daemon, "load_state", return_value=EMPTY_STATE):
+            self.assertEqual(
+                daemon.resolve_window_start(now),
+                int(datetime.datetime(2026, 7, 15, 19, 0, 0).timestamp()),
+            )
+
+    def test_falls_back_to_schedule_when_usage_raises(self):
+        now = int(datetime.datetime(2026, 7, 15, 22, 7, 0).timestamp())
+        with patch.object(daemon, "get_usage", side_effect=OSError("boom")), \
+             patch.object(daemon, "load_state", return_value=EMPTY_STATE), \
+             patch.object(daemon, "log"):
+            self.assertEqual(
+                daemon.resolve_window_start(now),
+                int(datetime.datetime(2026, 7, 15, 19, 0, 0).timestamp()),
+            )
+
+    def test_next_start_answers_without_usage_lookup(self):
+        # Schedule-only answers must not pay for the CLI subprocess.
+        now = int(datetime.datetime(2026, 7, 15, 14, 30, 0).timestamp())
+        with patch.object(daemon, "get_usage") as get_usage_mock, \
+             patch.object(daemon, "load_state", return_value=EMPTY_STATE), \
+             patch("time.time", return_value=now):
+            daemon.answer_question({}, "when is the next reset")
+        get_usage_mock.assert_not_called()
+
+    def test_usage_answer_uses_real_window(self):
+        now = int(datetime.datetime(2026, 7, 15, 16, 39, 0).timestamp())
+        resets_at = int(datetime.datetime(2026, 7, 15, 19, 9, 0).timestamp())
+        usage = {"session": {"pct": 50.0, "resets_at": resets_at}, "weekly": None}
+        with patch.object(daemon, "get_usage", return_value=usage), \
+             patch.object(daemon, "load_state", return_value=EMPTY_STATE), \
+             patch("time.time", return_value=now):
+            reply = daemon.answer_question({}, "when does this window end")
+        self.assertIn("19:09", reply)
 
 
 if __name__ == "__main__":

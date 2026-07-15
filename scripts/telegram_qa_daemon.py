@@ -19,6 +19,7 @@ import urllib.request
 from pathlib import Path
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from claude_usage import get_usage  # noqa: E402
 from telegram_qa_lib import (  # noqa: E402
     current_window_start,
     extract_output_text,
@@ -30,6 +31,7 @@ from telegram_qa_lib import (  # noqa: E402
     usage_percent,
     window_end,
 )
+from usage_lib import derive_window_start  # noqa: E402
 
 ROOT = Path(__file__).resolve().parents[1]
 ENV_FILE = Path(os.environ.get("CLAUDE_SESSION_PING_ENV_FILE", str(ROOT / ".env")))
@@ -152,16 +154,45 @@ def openai_answer(api_key: str, model: str, state: dict, question: str, window_s
         return "Sorry, I couldn't reach the answering service right now."
 
 
+def resolve_window_start(now: int) -> int:
+    """Real usage window if available, else state file, else schedule inference.
+
+    The schedule is only an approximation: a 14:00 ping can land in a window
+    that really runs 14:09-19:09, so ask Claude for the truth when we can.
+    """
+    try:
+        usage = get_usage(now)
+    except Exception as exc:  # noqa: BLE001 - must not break the poll loop
+        log(f"usage lookup failed: {exc}")
+        usage = None
+    if usage and usage.get("session"):
+        return derive_window_start(usage["session"]["resets_at"])
+
+    state = load_state()
+    window_start = state.get("window_start") or current_window_start(now)
+    if window_start and now >= window_end(window_start):
+        window_start = current_window_start(now)
+    return window_start
+
+
 def answer_question(env: dict, question: str) -> str:
     state = load_state()
     now = int(time.time())
     intent = match_intent(question)
 
-    # Prefer the window start recorded by the ping script; if the state file
-    # is missing or stale, infer the active window from the fixed schedule.
-    window_start = state.get("window_start") or current_window_start(now)
-    if window_start and now >= window_end(window_start):
-        window_start = current_window_start(now)
+    # Answered from the schedule alone, so skip the usage lookup's subprocess.
+    if intent == "next_start":
+        starts = next_start_times(now)
+        if not starts:
+            return "I couldn't work out the next session start time."
+        return f"Next session window starts at {format_time(starts[0])} (in {humanize_delta(starts[0] - now)})."
+    if intent == "next_next_start":
+        starts = next_start_times(now)
+        if len(starts) < 2:
+            return "I couldn't work out the session start time after next."
+        return f"The session window after next starts at {format_time(starts[1])} (in {humanize_delta(starts[1] - now)})."
+
+    window_start = resolve_window_start(now)
 
     if intent == "usage":
         if not window_start:
@@ -184,17 +215,6 @@ def answer_question(env: dict, question: str) -> str:
             return "No session window is active right now."
         end = window_end(window_start)
         return f"Current window ends around {format_time(end)} ({humanize_delta(end - now)} left)."
-    if intent == "next_start":
-        starts = next_start_times(now)
-        if not starts:
-            return "I couldn't work out the next session start time."
-        return f"Next session window starts at {format_time(starts[0])} (in {humanize_delta(starts[0] - now)})."
-    if intent == "next_next_start":
-        starts = next_start_times(now)
-        if len(starts) < 2:
-            return "I couldn't work out the session start time after next."
-        return f"The session window after next starts at {format_time(starts[1])} (in {humanize_delta(starts[1] - now)})."
-
     api_key = env.get("OPENAI_API_KEY")
     if not api_key:
         return "I don't recognize that question and no OPENAI_API_KEY is configured."
