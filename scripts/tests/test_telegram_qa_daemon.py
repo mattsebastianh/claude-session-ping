@@ -98,6 +98,39 @@ class TestFallbackPaths(unittest.TestCase):
             reply = daemon.openai_answer("sk-test", "gpt-5-nano", EMPTY_STATE, "hi")
         self.assertEqual(reply, "Sorry, I couldn't reach the answering service right now.")
 
+    def test_get_updates_network_failure_sleeps_before_retry(self):
+        import urllib.error
+
+        with patch("urllib.request.urlopen", side_effect=urllib.error.URLError("boom")), \
+                patch.object(daemon, "log") as log_mock, \
+                patch("time.sleep") as sleep_mock:
+            result, failed = daemon.get_updates("token", None)
+
+        self.assertEqual(result, [])
+        self.assertTrue(failed)
+        sleep_mock.assert_called_once_with(5)
+        log_mock.assert_called_once()
+
+    def test_maybe_notify_poll_failure_alerts_after_threshold(self):
+        with patch.object(daemon, "send_message") as send_message_mock, \
+                patch.object(daemon, "log") as log_mock:
+            daemon.maybe_notify_poll_failure("token", "123", daemon.MAX_GETUPDATES_FAILURES_BEFORE_ALERT)
+
+        expected = (
+            f"Telegram polling has failed {daemon.MAX_GETUPDATES_FAILURES_BEFORE_ALERT} times in a row; "
+            "I will notify you if it continues."
+        )
+        send_message_mock.assert_called_once_with("token", "123", expected)
+        log_mock.assert_called_once_with(expected)
+
+    def test_maybe_notify_poll_failure_does_not_alert_below_threshold(self):
+        with patch.object(daemon, "send_message") as send_message_mock, \
+                patch.object(daemon, "log") as log_mock:
+            daemon.maybe_notify_poll_failure("token", "123", daemon.MAX_GETUPDATES_FAILURES_BEFORE_ALERT - 1)
+
+        send_message_mock.assert_not_called()
+        log_mock.assert_not_called()
+
 
 if __name__ == "__main__":
     unittest.main()
