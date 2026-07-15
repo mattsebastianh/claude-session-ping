@@ -7,9 +7,30 @@ and this project follows [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
-Telegram notifier + Q&A bot, built on top of the v1.0.0 keepalive core.
+## [2.0.0] - 2026-07-15
+
+Telegram notifier + Q&A bot, plus real usage-window reporting, built on top
+of the v1.0.0 keepalive core.
 
 ### Added
+- Real usage-window reporting: notifications now show the true window start
+  and end, parsed from `claude -p "/usage"`, instead of assuming the window
+  equals the scheduled time plus five hours. The two drift apart in practice
+  — a 14:00 ping can land in a window that really runs 14:09–19:09.
+- Notifications distinguish "this ping opened a new window" from "the ping
+  landed inside a window that was already open", which previously reported
+  success and invented a window end five hours from the ping.
+- Weekly limit warning appended to notifications at >= 80% used.
+- Usage link (`https://claude.ai/new#settings/usage`) on scheduled
+  notifications.
+- `scripts/usage_lib.py` (pure parser) and `scripts/claude_usage.py` (IO
+  wrapper), with unit tests covering the observed output variants. Reading
+  `/usage` makes no API call, so it neither consumes quota nor opens a
+  window.
+- The Q&A bot answers window questions from the real window when available,
+  falling back to the state file and then the schedule.
+- `CLAUDE_SESSION_PING_MAX_RETRIES` and `CLAUDE_SESSION_PING_RETRY_DELAY`
+  env overrides, so the retry path is testable without waiting 25 minutes.
 - Telegram notifications on every keepalive attempt's outcome (window opened,
   or all retries exhausted).
 - Telegram Q&A daemon (`scripts/telegram_qa_daemon.py`) that answers schedule
@@ -63,5 +84,6 @@ Initial release: a `launchd`-based keepalive ping, no LLM required to decide
 - `install.sh` to install the launch agent.
 - MIT license and initial README.
 
-[Unreleased]: https://github.com/mattsebastianh/claude-session-ping/compare/v1.0.0...HEAD
+[Unreleased]: https://github.com/mattsebastianh/claude-session-ping/compare/v2.0.0...HEAD
+[2.0.0]: https://github.com/mattsebastianh/claude-session-ping/compare/v1.0.0...v2.0.0
 [1.0.0]: https://github.com/mattsebastianh/claude-session-ping/releases/tag/v1.0.0

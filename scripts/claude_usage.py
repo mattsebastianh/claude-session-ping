@@ -33,6 +33,7 @@ def fetch_usage_text(timeout: int = DEFAULT_TIMEOUT_SECONDS) -> str | None:
             capture_output=True,
             text=True,
             timeout=timeout,
+            stdin=subprocess.DEVNULL,  # else claude stalls waiting on inherited stdin
         )
     except (subprocess.TimeoutExpired, FileNotFoundError, OSError):
         return None

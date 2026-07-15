@@ -30,6 +30,16 @@ decide *when* to fire, only plain system scheduling and shell code.
      waiting 5 minutes between attempts (5 attempts total per window).
   4. Logs everything to `logs/claude-session-ping.log` in the project
      directory (override with `CLAUDE_SESSION_PING_LOG`).
+  5. Asks Claude for the **real** usage window via `claude -p "/usage"` and
+     reports the true start/end in notifications.
+
+The schedule is only an approximation of the real window, which is why step 5
+exists. A window starts when you first use Claude, not when the clock says
+04:00 — so a 14:00 ping can land in a window that really runs 14:09–19:09. If
+a window is already open, the ping is absorbed into it and **no new window
+opens**; the notification says so explicitly instead of claiming success.
+Reading `/usage` costs no quota and doesn't itself open a window. If the
+lookup or parse fails, the script falls back to the scheduled assumption.
 
 Nothing here needs an IDE, terminal, or Claude Code session to stay open —
 once installed, `launchd` runs it independently as long as the Mac is on.
