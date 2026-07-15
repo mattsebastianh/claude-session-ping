@@ -42,6 +42,12 @@ Telegram notifier + Q&A bot, built on top of the v1.0.0 keepalive core.
   while still honoring `CLAUDE_SESSION_PING_ENV_FILE` when explicitly set.
 - State file (`state.json`) also now defaults to the project-local
   `.claude-session-ping/` directory instead of the home directory.
+- The launch agent now sets `PATH` and `USER`/`LOGNAME` explicitly (via new
+  `{{HOME_DIR}}`/`{{USER}}` template placeholders filled in by `install.sh`).
+  launchd's default job environment is minimal enough that `claude` couldn't
+  be found on `PATH` and, once found, reported "Not logged in" for lack of
+  `USER` — both caused every scheduled keepalive attempt to fail silently
+  until the next window.
 
 ## [1.0.0] - 2026-07-13
 

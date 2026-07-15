@@ -16,6 +16,13 @@ decide *when* to fire, only plain system scheduling and shell code.
   - 09:00
   - 14:00
   - 19:00
+
+  launchd runs jobs with a minimal environment (bare `PATH`, no `USER`/
+  `LOGNAME`), which isn't enough to find the `claude` CLI or for it to look
+  up your login/auth. The template sets `PATH` (including
+  `~/.local/bin`, where `claude` is commonly installed) and `USER`/
+  `LOGNAME` explicitly via `EnvironmentVariables`, templated with
+  `{{HOME_DIR}}`/`{{USER}}` placeholders that `install.sh` fills in.
 - **`scripts/claude_session_ping.sh`** — the script launchd runs. It:
   1. Checks the current time is one of the four windows above (safety net).
   2. Sends a keepalive ping (defaults to `claude -p "..."`).
@@ -34,8 +41,8 @@ once installed, `launchd` runs it independently as long as the Mac is on.
 ```
 
 This generates `~/Library/LaunchAgents/com.claude-session-ping.plist` from
-the template (substituting your actual home/project paths) and loads it
-with `launchctl`.
+the template (substituting your actual home/project paths and username)
+and loads it with `launchctl`. Re-run it any time the template changes.
 
 Confirm it's loaded:
 

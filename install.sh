@@ -6,7 +6,7 @@ PLIST_TEMPLATE="$ROOT/launchd/com.claude-session-ping.plist"
 PLIST_DEST="$HOME/Library/LaunchAgents/com.claude-session-ping.plist"
 
 mkdir -p "$HOME/Library/LaunchAgents" "$ROOT/logs"
-sed -e "s|{{PROJECT_DIR}}|$ROOT|g" -e "s|{{HOME_DIR}}|$HOME|g" "$PLIST_TEMPLATE" >"$PLIST_DEST"
+sed -e "s|{{PROJECT_DIR}}|$ROOT|g" -e "s|{{HOME_DIR}}|$HOME|g" -e "s|{{USER}}|$USER|g" "$PLIST_TEMPLATE" >"$PLIST_DEST"
 chmod 644 "$PLIST_DEST"
 chmod +x "$ROOT/scripts/claude_session_ping.sh"
 

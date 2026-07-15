@@ -12,6 +12,16 @@
     <string>{{PROJECT_DIR}}/scripts/claude_session_ping.sh</string>
   </array>
 
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>PATH</key>
+    <string>{{HOME_DIR}}/.local/bin:/usr/local/bin:/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
+    <key>USER</key>
+    <string>{{USER}}</string>
+    <key>LOGNAME</key>
+    <string>{{USER}}</string>
+  </dict>
+
   <key>RunAtLoad</key>
   <false/>
 
