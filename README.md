@@ -137,12 +137,10 @@ rm ~/Library/LaunchAgents/com.claude-session-ping.telegram-bot.plist
 All secrets (Telegram bot token, chat id, OpenAI API key) live only in
 the project's `.env` file, or wherever `CLAUDE_SESSION_PING_ENV_FILE` points
 if you override it (e.g. the legacy `~/.claude-session-ping.env` path) —
-both are gitignored and never committed. The `logs/` and
-`.claude-session-ping/` directories (runtime logs and schedule state) are
-also gitignored. When writing design docs or specs in `docs/`, use
-placeholder values (e.g. `sk-exampleReplaceMe`) rather than real
-credentials; nothing in `docs/` is gitignored, since design history is
-meant to be tracked.
+both are gitignored and never committed. The `logs/`, `.claude-session-ping/`
+(runtime logs and schedule state), and `docs/` (design docs/specs/plans)
+directories are also gitignored — `docs/` is kept purely as local, private
+scratch space and is never pushed.
 
 ## Changelog
 

@@ -8,5 +8,6 @@
 .claude-session-ping/
 logs/
 .superpowers/
+/docs
 __pycache__/
 *.py[cod]
