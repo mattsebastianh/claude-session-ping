@@ -6,3 +6,5 @@
 .env
 .claude-session-ping.env
 .superpowers/
+__pycache__/
+*.py[cod]

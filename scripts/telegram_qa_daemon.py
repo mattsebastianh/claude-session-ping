@@ -79,18 +79,18 @@ def send_message(token: str, chat_id: str, text: str) -> None:
         log(f"sendMessage failed: {exc}")
 
 
-def maybe_notify_poll_failure(token: str, chat_id: str, failure_count: int) -> None:
+def maybe_notify_poll_failure(token: str, chat_id: str, failure_count: int, exc: str) -> None:
     if failure_count != MAX_GETUPDATES_FAILURES_BEFORE_ALERT:
         return
     warning = (
         f"Telegram polling has failed {failure_count} times in a row; "
-        "I will notify you if it continues."
+        f"last error: {exc}. I will notify you if it continues."
     )
     log(warning)
     send_message(token, chat_id, warning)
 
 
-def get_updates(token: str, offset: int | None) -> tuple[list[dict], bool]:
+def get_updates(token: str, offset: int | None) -> tuple[list[dict], bool, str | None]:
     params: dict = {"timeout": POLL_TIMEOUT_SECONDS}
     if offset is not None:
         params["offset"] = offset
@@ -99,8 +99,8 @@ def get_updates(token: str, offset: int | None) -> tuple[list[dict], bool]:
     except (urllib.error.URLError, OSError, json.JSONDecodeError) as exc:
         log(f"getUpdates failed: {exc}")
         time.sleep(5)
-        return [], True
-    return result.get("result", []), False
+        return [], True, str(exc)
+    return result.get("result", []), False, None
 
 
 def openai_answer(api_key: str, model: str, state: dict, question: str, window_start: int = 0) -> str:
@@ -214,10 +214,10 @@ def run() -> None:
     consecutive_failures = 0
     while True:
         try:
-            updates, failed = get_updates(token, offset)
+            updates, failed, error_message = get_updates(token, offset)
             if failed:
                 consecutive_failures += 1
-                maybe_notify_poll_failure(token, allowed_chat_id, consecutive_failures)
+                maybe_notify_poll_failure(token, allowed_chat_id, consecutive_failures, error_message or "unknown error")
                 continue
             consecutive_failures = 0
             for update in updates:
