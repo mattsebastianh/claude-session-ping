@@ -19,9 +19,9 @@
   <true/>
 
   <key>StandardOutPath</key>
-  <string>{{HOME_DIR}}/Library/Logs/claude-session-ping-telegram-bot.out.log</string>
+  <string>{{PROJECT_DIR}}/logs/claude-session-ping-telegram-bot.out.log</string>
 
   <key>StandardErrorPath</key>
-  <string>{{HOME_DIR}}/Library/Logs/claude-session-ping-telegram-bot.err.log</string>
+  <string>{{PROJECT_DIR}}/logs/claude-session-ping-telegram-bot.err.log</string>
 </dict>
 </plist>

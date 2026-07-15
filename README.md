@@ -21,7 +21,8 @@ decide *when* to fire, only plain system scheduling and shell code.
   2. Sends a keepalive ping (defaults to `claude -p "..."`).
   3. If it detects a usage-limit/blocked response, retries up to **4 times**,
      waiting 5 minutes between attempts (5 attempts total per window).
-  4. Logs everything to `~/Library/Logs/claude-session-ping.log`.
+  4. Logs everything to `logs/claude-session-ping.log` in the project
+     directory (override with `CLAUDE_SESSION_PING_LOG`).
 
 Nothing here needs an IDE, terminal, or Claude Code session to stay open —
 once installed, `launchd` runs it independently as long as the Mac is on.
@@ -50,7 +51,7 @@ instead, run a custom command, or fake the time for testing), copy the
 example env file:
 
 ```zsh
-cp claude-session-ping.env.example ~/.claude-session-ping.env
+cp .env.example .env
 ```
 
 See that file for available options, including the optional Telegram
@@ -75,8 +76,8 @@ nothing about the existing behavior changes.
    response.
 3. **Get an OpenAI API key** (optional, only used as a fallback for
    questions the bot doesn't recognize) from your OpenAI account.
-4. Add these to `~/.claude-session-ping.env` (copy from
-   `claude-session-ping.env.example` if you haven't already):
+4. Add these to `.env` in the project root (copy from
+   `.env.example` if you haven't already):
 
    ```
    TELEGRAM_BOT_TOKEN='123456789:AAExampleTokenReplaceMe'
@@ -109,11 +110,17 @@ Trigger a one-off notify without waiting for a real window:
 CLAUDE_SESSION_PING_MOCK_TIME='09:00' ./scripts/claude_session_ping.sh
 ```
 
+Or use the dedicated helper script for the same mock run:
+
+```zsh
+./scripts/mock_session_ping.sh 09:00
+```
+
 Check the daemon is running and see its logs:
 
 ```zsh
 launchctl list | grep claude-session-ping.telegram-bot
-tail -f ~/Library/Logs/claude-session-ping-telegram-bot.log
+tail -f logs/claude-session-ping-telegram-bot.log
 ```
 
 Then message your bot on Telegram directly and confirm it replies.
@@ -128,10 +135,14 @@ rm ~/Library/LaunchAgents/com.claude-session-ping.telegram-bot.plist
 ## Security
 
 All secrets (Telegram bot token, chat id, OpenAI API key) live only in
-`~/.claude-session-ping.env` / `.env` — both are gitignored and never
-committed. When writing design docs or specs in `docs/`, use placeholder
-values (e.g. `sk-exampleReplaceMe`) rather than real credentials; nothing
-in `docs/` is gitignored, since design history is meant to be tracked.
+the project's `.env` file, or wherever `CLAUDE_SESSION_PING_ENV_FILE` points
+if you override it (e.g. the legacy `~/.claude-session-ping.env` path) —
+both are gitignored and never committed. The `logs/` and
+`.claude-session-ping/` directories (runtime logs and schedule state) are
+also gitignored. When writing design docs or specs in `docs/`, use
+placeholder values (e.g. `sk-exampleReplaceMe`) rather than real
+credentials; nothing in `docs/` is gitignored, since design history is
+meant to be tracked.
 
 ## Changelog
 
@@ -143,6 +154,14 @@ Simulate a trigger without waiting for the real time:
 
 ```zsh
 CLAUDE_SESSION_PING_MOCK_TIME='09:00' ./scripts/claude_session_ping.sh
+```
+
+Or use `scripts/mock_session_ping.sh`, which does the same but substitutes a
+fake `echo` command for the real Claude ping and prints the resulting log
+from `logs/claude-session-ping.log`:
+
+```zsh
+./scripts/mock_session_ping.sh 09:00
 ```
 
 ## Uninstall

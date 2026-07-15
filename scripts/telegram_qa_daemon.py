@@ -31,11 +31,12 @@ from telegram_qa_lib import (  # noqa: E402
     window_end,
 )
 
-ENV_FILE = Path(os.environ.get("CLAUDE_SESSION_PING_ENV_FILE", str(Path.home() / ".claude-session-ping.env")))
-STATE_FILE = Path(os.environ.get("CLAUDE_SESSION_PING_STATE_FILE", str(Path.home() / ".claude-session-ping" / "state.json")))
+ROOT = Path(__file__).resolve().parents[1]
+ENV_FILE = Path(os.environ.get("CLAUDE_SESSION_PING_ENV_FILE", str(ROOT / ".env")))
+STATE_FILE = Path(os.environ.get("CLAUDE_SESSION_PING_STATE_FILE", str(ROOT / ".claude-session-ping" / "state.json")))
 LOG_FILE = Path(os.environ.get(
     "CLAUDE_SESSION_PING_TELEGRAM_BOT_LOG",
-    str(Path.home() / "Library" / "Logs" / "claude-session-ping-telegram-bot.log"),
+    str(Path(__file__).resolve().parents[1] / "logs" / "claude-session-ping-telegram-bot.log"),
 ))
 
 POLL_TIMEOUT_SECONDS = 30

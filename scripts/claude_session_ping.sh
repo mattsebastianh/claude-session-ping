@@ -5,9 +5,9 @@ TARGETS=(0400 0900 1400 1900)
 MAX_RETRIES=4
 RETRY_DELAY_SECONDS=300
 LIMIT_PATTERN='(usage limit|quota|blocked|rate limit|try again later)'
-LOG_FILE="${CLAUDE_SESSION_PING_LOG:-$HOME/Library/Logs/claude-session-ping.log}"
-STATE_FILE="${CLAUDE_SESSION_PING_STATE_FILE:-$HOME/.claude-session-ping/state.json}"
-ENV_FILE="${CLAUDE_SESSION_PING_ENV_FILE:-$HOME/.claude-session-ping.env}"
+LOG_FILE="${CLAUDE_SESSION_PING_LOG:-$(cd "$(dirname "$0")/.." && pwd)/logs/claude-session-ping.log}"
+STATE_FILE="${CLAUDE_SESSION_PING_STATE_FILE:-$(cd "$(dirname "$0")/.." && pwd)/.claude-session-ping/state.json}"
+ENV_FILE="${CLAUDE_SESSION_PING_ENV_FILE:-$(cd "$(dirname "$0")/.." && pwd)/.env}"
 MOCK_TIME="${CLAUDE_SESSION_PING_MOCK_TIME:-}"
 
 if [[ -n "$MOCK_TIME" ]]; then

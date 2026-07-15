@@ -20,8 +20,10 @@ Telegram notifier + Q&A bot, built on top of the v1.0.0 keepalive core.
   file is missing or stale, instead of only trusting the last-written state.
 - Own launchd job (`com.claude-session-ping.telegram-bot`) installed by
   `install.sh` when `TELEGRAM_BOT_TOKEN` and `TELEGRAM_CHAT_ID` are set.
-- `claude-session-ping.env.example` documents the Telegram/OpenAI env vars.
+- `.env.example` documents the Telegram/OpenAI env vars.
 - Design spec and implementation plan for the notifier/Q&A bot under `docs/`.
+- `scripts/mock_session_ping.sh` to run a deterministic mock keepalive ping and
+  verify log output lands in the project log folder.
 
 ### Fixed
 - `match_intent` no longer false-positives on substrings like "weekend" or
@@ -34,6 +36,12 @@ Telegram notifier + Q&A bot, built on top of the v1.0.0 keepalive core.
   break answers.
 - `parse_env_text` supports `export KEY=value` lines and unquoted inline
   `# comments`, matching how the env file is actually sourced by zsh.
+- Both the scheduled ping and Telegram daemon now default their logs to the
+  project-local `logs/` directory instead of the home `~/Library/Logs` folder.
+- The project now defaults to a repo-local `.env` file for configuration,
+  while still honoring `CLAUDE_SESSION_PING_ENV_FILE` when explicitly set.
+- State file (`state.json`) also now defaults to the project-local
+  `.claude-session-ping/` directory instead of the home directory.
 
 ## [1.0.0] - 2026-07-13
 
