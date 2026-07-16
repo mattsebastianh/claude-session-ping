@@ -7,11 +7,19 @@ and this project follows [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [2.1.0] - 2026-07-16
+
 ### Changed
 - Schedule shifted two minutes later, to 04:02 / 09:02 / 14:02 / 19:02, so a
   ping lands clear of the previous window's exact expiry rather than racing
   it. Applies to the launch agent, the ping script, and the bot's schedule
   answers.
+
+## [2.0.1] - 2026-07-16
+
+Sleep resilience: on a Mac that sleeps, windows were silently missed, the
+bot answered from the schedule instead of live usage, and the poll alert
+cried wolf.
 
 ### Fixed
 - Keepalive windows are no longer silently missed when the Mac is asleep at
@@ -117,6 +125,8 @@ Initial release: a `launchd`-based keepalive ping, no LLM required to decide
 - `install.sh` to install the launch agent.
 - MIT license and initial README.
 
-[Unreleased]: https://github.com/mattsebastianh/claude-session-ping/compare/v2.0.0...HEAD
+[Unreleased]: https://github.com/mattsebastianh/claude-session-ping/compare/v2.1.0...HEAD
+[2.1.0]: https://github.com/mattsebastianh/claude-session-ping/compare/v2.0.1...v2.1.0
+[2.0.1]: https://github.com/mattsebastianh/claude-session-ping/compare/v2.0.0...v2.0.1
 [2.0.0]: https://github.com/mattsebastianh/claude-session-ping/compare/v1.0.0...v2.0.0
 [1.0.0]: https://github.com/mattsebastianh/claude-session-ping/releases/tag/v1.0.0
