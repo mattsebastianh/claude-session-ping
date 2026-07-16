@@ -32,11 +32,14 @@ def format_time(epoch: int) -> str:
 
 
 def humanize_delta(seconds: int) -> str:
-    """Human-friendly duration like "5h 53m", "42m", or "under a minute"."""
+    """Human-friendly duration like "2d 4h", "5h 53m", "42m", or "under a minute"."""
     if seconds < 60:
         return "under a minute"
-    hours, rem = divmod(int(seconds), 3600)
+    days, rem = divmod(int(seconds), 86400)
+    hours, rem = divmod(rem, 3600)
     minutes = rem // 60
+    if days:
+        return f"{days}d {hours}h"
     if hours:
         return f"{hours}h {minutes}m"
     return f"{minutes}m"

@@ -101,6 +101,12 @@ class TestHumanizeDelta(unittest.TestCase):
         # Clock skew between state file and daemon shouldn't produce "-1m".
         self.assertEqual(humanize_delta(-500), "under a minute")
 
+    def test_days_and_hours(self):
+        self.assertEqual(humanize_delta(2 * 86400 + 4 * 3600 + 10 * 60), "2d 4h")
+
+    def test_exact_one_day(self):
+        self.assertEqual(humanize_delta(86400), "1d 0h")
+
 
 class TestExtractOutputText(unittest.TestCase):
     def test_skips_reasoning_item(self):
