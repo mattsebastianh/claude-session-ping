@@ -17,6 +17,7 @@ from telegram_qa_lib import (
     next_start_times,
     parse_env_text,
     usage_percent,
+    usage_prompt_line,
     window_end,
 )
 
@@ -237,6 +238,29 @@ class TestFormatUsageReply(unittest.TestCase):
             format_usage_reply(usage, self.NOW),
             "📅 Weekly: 41% used — resets Sat 18:00 (2d 1h left)",
         )
+
+
+class TestUsagePromptLine(unittest.TestCase):
+    def test_session_and_weekly(self):
+        usage = {
+            "session": {"pct": 32.0, "resets_at": int(datetime.datetime(2026, 7, 16, 19, 10, 0).timestamp())},
+            "weekly": {"pct": 95.0, "resets_at": int(datetime.datetime(2026, 7, 18, 18, 0, 0).timestamp())},
+        }
+        self.assertEqual(
+            usage_prompt_line(usage),
+            "Live usage: session 32% used, resets 19:10; weekly 95% used, resets Sat 18:00. ",
+        )
+
+    def test_session_only(self):
+        usage = {
+            "session": {"pct": 5.0, "resets_at": int(datetime.datetime(2026, 7, 16, 19, 10, 0).timestamp())},
+            "weekly": None,
+        }
+        self.assertEqual(usage_prompt_line(usage), "Live usage: session 5% used, resets 19:10. ")
+
+    def test_unavailable_returns_empty(self):
+        self.assertEqual(usage_prompt_line(None), "")
+        self.assertEqual(usage_prompt_line({"session": None, "weekly": None}), "")
 
 
 class TestParseEnvText(unittest.TestCase):

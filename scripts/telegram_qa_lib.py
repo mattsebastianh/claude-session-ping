@@ -70,6 +70,22 @@ def format_usage_reply(usage: dict, now: int) -> str:
     return "\n".join(lines)
 
 
+def usage_prompt_line(usage: dict | None) -> str:
+    """System-prompt sentence of live usage (trailing space), or "" if unavailable."""
+    if not usage:
+        return ""
+    parts = []
+    session = usage.get("session")
+    if session:
+        parts.append(f"session {session['pct']:.0f}% used, resets {format_time(session['resets_at'])}")
+    weekly = usage.get("weekly")
+    if weekly:
+        parts.append(f"weekly {weekly['pct']:.0f}% used, resets {format_day_time(weekly['resets_at'])}")
+    if not parts:
+        return ""
+    return "Live usage: " + "; ".join(parts) + ". "
+
+
 def extract_output_text(result: dict) -> str | None:
     """Pull the assistant text out of an OpenAI Responses API result.
 
