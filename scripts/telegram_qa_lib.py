@@ -31,6 +31,11 @@ def format_time(epoch: int) -> str:
     return datetime.datetime.fromtimestamp(epoch).strftime("%H:%M")
 
 
+def format_day_time(epoch: int) -> str:
+    """Format epoch seconds as a local "Thu 18:00" string (for resets days away)."""
+    return datetime.datetime.fromtimestamp(epoch).strftime("%a %H:%M")
+
+
 def humanize_delta(seconds: int) -> str:
     """Human-friendly duration like "2d 4h", "5h 53m", "42m", or "under a minute"."""
     if seconds < 60:

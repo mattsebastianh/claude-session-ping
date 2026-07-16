@@ -9,6 +9,7 @@ from telegram_qa_lib import (
     WINDOW_SECONDS,
     current_window_start,
     extract_output_text,
+    format_day_time,
     format_time,
     humanize_delta,
     match_intent,
@@ -106,6 +107,13 @@ class TestHumanizeDelta(unittest.TestCase):
 
     def test_exact_one_day(self):
         self.assertEqual(humanize_delta(86400), "1d 0h")
+
+
+class TestFormatDayTime(unittest.TestCase):
+    def test_renders_weekday_and_time(self):
+        # 2026-07-16 is a Thursday.
+        epoch = int(datetime.datetime(2026, 7, 16, 18, 0, 0).timestamp())
+        self.assertEqual(format_day_time(epoch), "Thu 18:00")
 
 
 class TestExtractOutputText(unittest.TestCase):
