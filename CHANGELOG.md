@@ -7,6 +7,11 @@ and this project follows [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [2.0.0] - 2026-07-16
+
+Telegram notifier + Q&A bot, plus real usage-window reporting, built on top
+of the v1.0.0 keepalive core.
+
 ### Added
 - The Q&A bot answers usage questions ("what's my usage?", "weekly
   limit?") with live data from `claude -p "/usage"` — percent used and
@@ -14,17 +19,6 @@ and this project follows [Semantic Versioning](https://semver.org/).
   of reporting window time elapsed as if it were usage. Falls back to a
   clearly-labeled schedule estimate when the lookup fails.
 - Free-form (OpenAI-answered) questions include live usage as context.
-
-### Fixed
-- Telegram notifications no longer render a link preview card for the
-  usage URL.
-
-## [2.0.0] - 2026-07-15
-
-Telegram notifier + Q&A bot, plus real usage-window reporting, built on top
-of the v1.0.0 keepalive core.
-
-### Added
 - Real usage-window reporting: notifications now show the true window start
   and end, parsed from `claude -p "/usage"`, instead of assuming the window
   equals the scheduled time plus five hours. The two drift apart in practice
@@ -59,6 +53,8 @@ of the v1.0.0 keepalive core.
   verify log output lands in the project log folder.
 
 ### Fixed
+- Telegram notifications no longer render a link preview card for the
+  usage URL.
 - `match_intent` no longer false-positives on substrings like "weekend" or
   "recover" matching `window_end`-ish keywords.
 - Network errors from the OpenAI fallback no longer crash the poll loop.
