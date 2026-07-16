@@ -173,12 +173,24 @@ class TestFallbackPaths(NoRealUsageLookup):
         with patch("urllib.request.urlopen", side_effect=urllib.error.URLError("boom")), \
                 patch.object(daemon, "log") as log_mock, \
                 patch("time.sleep") as sleep_mock:
-            result, failed, error_message = daemon.get_updates("token", None)
+            result, status, error_message = daemon.get_updates("token", None)
 
         self.assertEqual(result, [])
-        self.assertTrue(failed)
+        self.assertEqual(status, "error")
         self.assertEqual(error_message, "<urlopen error boom>")
         sleep_mock.assert_called_once_with(5)
+        log_mock.assert_called_once()
+
+    def test_get_updates_read_timeout_is_transient(self):
+        # The macOS DarkWake case: logged for diagnostics, but not an outage.
+        with patch("urllib.request.urlopen", side_effect=TimeoutError("The read operation timed out")), \
+                patch.object(daemon, "log") as log_mock, \
+                patch("time.sleep"):
+            result, status, error_message = daemon.get_updates("token", None)
+
+        self.assertEqual(result, [])
+        self.assertEqual(status, "transient")
+        self.assertEqual(error_message, "The read operation timed out")
         log_mock.assert_called_once()
 
     def test_maybe_notify_poll_failure_alerts_after_threshold(self):

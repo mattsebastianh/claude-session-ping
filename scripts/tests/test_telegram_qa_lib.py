@@ -2,13 +2,16 @@ import datetime
 import os
 import sys
 import unittest
+import urllib.error
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 from telegram_qa_lib import (
     WINDOW_SECONDS,
+    counts_toward_outage,
     current_window_start,
     extract_output_text,
+    next_failure_count,
     format_day_time,
     format_time,
     format_usage_reply,
@@ -261,6 +264,42 @@ class TestUsagePromptLine(unittest.TestCase):
     def test_unavailable_returns_empty(self):
         self.assertEqual(usage_prompt_line(None), "")
         self.assertEqual(usage_prompt_line({"session": None, "weekly": None}), "")
+
+
+class TestCountsTowardOutage(unittest.TestCase):
+    def test_read_timeout_is_not_an_outage(self):
+        # Every macOS DarkWake kills the pending long poll; that is normal,
+        # not an outage. Counting it sent 12 false alarms in one night.
+        self.assertFalse(counts_toward_outage(TimeoutError("The read operation timed out")))
+
+    def test_url_error_wrapping_a_timeout_is_not_an_outage(self):
+        exc = urllib.error.URLError(TimeoutError("timed out"))
+        self.assertFalse(counts_toward_outage(exc))
+
+    def test_connection_reset_is_an_outage(self):
+        self.assertTrue(counts_toward_outage(urllib.error.URLError("[Errno 54] Connection reset by peer")))
+
+    def test_json_decode_error_is_an_outage(self):
+        self.assertTrue(counts_toward_outage(ValueError("bad json")))
+
+
+class TestNextFailureCount(unittest.TestCase):
+    def test_ok_resets(self):
+        self.assertEqual(next_failure_count(7, "ok"), 0)
+
+    def test_error_increments(self):
+        self.assertEqual(next_failure_count(2, "error"), 3)
+
+    def test_transient_holds_steady(self):
+        # A sleep timeout is neither progress nor an outage: hold the count
+        # so a real outage after sleep still alerts at the right threshold.
+        self.assertEqual(next_failure_count(2, "transient"), 2)
+
+    def test_transient_streak_never_reaches_threshold(self):
+        count = 0
+        for _ in range(20):
+            count = next_failure_count(count, "transient")
+        self.assertEqual(count, 0)
 
 
 class TestParseEnvText(unittest.TestCase):

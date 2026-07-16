@@ -86,6 +86,33 @@ def usage_prompt_line(usage: dict | None) -> str:
     return "Live usage: " + "; ".join(parts) + ". "
 
 
+def counts_toward_outage(exc: BaseException) -> bool:
+    """Whether a getUpdates failure suggests a real outage worth alerting on.
+
+    A read timeout does not: the 30s long poll times out routinely, and on a
+    Mac that sleeps, every DarkWake surfaces the dead socket as a timeout.
+    Treating those as an outage produced a dozen false alarms in one night.
+    """
+    if isinstance(exc, TimeoutError):
+        return False
+    if isinstance(getattr(exc, "reason", None), TimeoutError):
+        return False
+    return True
+
+
+def next_failure_count(current: int, status: str) -> int:
+    """Consecutive alert-worthy failures after a poll with `status`.
+
+    "transient" holds the count rather than resetting it, so a genuine
+    outage that starts during sleep still reaches the alert threshold.
+    """
+    if status == "ok":
+        return 0
+    if status == "error":
+        return current + 1
+    return current
+
+
 def extract_output_text(result: dict) -> str | None:
     """Pull the assistant text out of an OpenAI Responses API result.
 

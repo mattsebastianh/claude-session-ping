@@ -21,8 +21,10 @@ from pathlib import Path
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from claude_usage import get_usage  # noqa: E402
 from telegram_qa_lib import (  # noqa: E402
+    counts_toward_outage,
     current_window_start,
     extract_output_text,
+    next_failure_count,
     format_time,
     format_usage_reply,
     humanize_delta,
@@ -95,7 +97,12 @@ def maybe_notify_poll_failure(token: str, chat_id: str, failure_count: int, exc:
     send_message(token, chat_id, warning)
 
 
-def get_updates(token: str, offset: int | None) -> tuple[list[dict], bool, str | None]:
+def get_updates(token: str, offset: int | None) -> tuple[list[dict], str, str | None]:
+    """Poll for updates. Returns (updates, status, error_message).
+
+    status is "ok", "transient" (a routine long-poll/sleep timeout), or
+    "error" (worth counting toward the outage alert).
+    """
     params: dict = {"timeout": POLL_TIMEOUT_SECONDS}
     if offset is not None:
         params["offset"] = offset
@@ -104,8 +111,8 @@ def get_updates(token: str, offset: int | None) -> tuple[list[dict], bool, str |
     except (urllib.error.URLError, OSError, json.JSONDecodeError) as exc:
         log(f"getUpdates failed: {exc}")
         time.sleep(5)
-        return [], True, str(exc)
-    return result.get("result", []), False, None
+        return [], "error" if counts_toward_outage(exc) else "transient", str(exc)
+    return result.get("result", []), "ok", None
 
 
 def openai_answer(api_key: str, model: str, state: dict, question: str, window_start: int = 0, usage: dict | None = None) -> str:
@@ -240,12 +247,12 @@ def run() -> None:
     consecutive_failures = 0
     while True:
         try:
-            updates, failed, error_message = get_updates(token, offset)
-            if failed:
-                consecutive_failures += 1
+            updates, status, error_message = get_updates(token, offset)
+            consecutive_failures = next_failure_count(consecutive_failures, status)
+            if status == "error":
                 maybe_notify_poll_failure(token, allowed_chat_id, consecutive_failures, error_message or "unknown error")
+            if status != "ok":
                 continue
-            consecutive_failures = 0
             for update in updates:
                 offset = update["update_id"] + 1
                 message = update.get("message", {})
