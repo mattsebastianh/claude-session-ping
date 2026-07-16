@@ -7,6 +7,18 @@ and this project follows [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+- The Q&A bot answers usage questions ("what's my usage?", "weekly
+  limit?") with live data from `claude -p "/usage"` — percent used and
+  reset time for both the session window and the weekly limit — instead
+  of reporting window time elapsed as if it were usage. Falls back to a
+  clearly-labeled schedule estimate when the lookup fails.
+- Free-form (OpenAI-answered) questions include live usage as context.
+
+### Fixed
+- Telegram notifications no longer render a link preview card for the
+  usage URL.
+
 ## [2.0.0] - 2026-07-15
 
 Telegram notifier + Q&A bot, plus real usage-window reporting, built on top

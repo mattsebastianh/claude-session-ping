@@ -140,14 +140,16 @@ nothing about the existing behavior changes.
 - **Notifications**: `claude_session_ping.sh` posts a message on every
   attempt's outcome — success (window opened) or failure (all retries
   exhausted).
-- **Q&A**: the daemon answers these locally, from a shared state file,
-  with no API calls:
-  - "what's my usage %?" → time elapsed in the current 5-hour window
+- **Q&A**: the daemon answers these locally, with no OpenAI calls:
+  - "what's my usage?" / "weekly limit?" → live session **and** weekly
+    usage (percent used + reset times) from `claude -p "/usage"`; falls
+    back to a clearly-labeled schedule estimate if the lookup fails
   - "when did this window open?"
   - "when does this window end?"
   - "what's the next session start time?" / "...next next...?"
   Anything else is sent to OpenAI (`gpt-5-nano` by default, override with
-  `OPENAI_MODEL`) along with the current schedule state as context.
+  `OPENAI_MODEL`) along with the current schedule state and live usage as
+  context.
 
 ### Manual testing
 
