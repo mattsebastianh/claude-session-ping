@@ -7,6 +7,25 @@ and this project follows [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+- Keepalive windows are no longer silently missed when the Mac is asleep at
+  a target time. launchd defers a missed `StartCalendarInterval` job until
+  the machine wakes, so a 09:00 job fired at 09:07 and the exact-time guard
+  skipped it — the window never opened. A run is now accepted up to
+  `CLAUDE_SESSION_PING_GRACE_MINUTES` (default 30) after a target, guarded
+  by state so a second late fire can't double-ping one window.
+- The Telegram daemon can find `claude` again: its launch agent had no
+  `EnvironmentVariables` block, so launchd gave it a default `PATH` without
+  `~/.local/bin`. Every `/usage` lookup failed silently and the bot answered
+  from the schedule instead of the real window (reporting a 09:00–14:00
+  window when the real one was 09:59–14:59). The v2.0.0 `PATH` fix had
+  reached the ping agent only.
+- Long-poll read timeouts no longer trigger the "polling has failed" alert.
+  Each macOS DarkWake kills the pending `getUpdates` socket, and with the
+  Mac sleeping straight back no successful poll reset the counter — 92
+  timeouts produced 12 false alarms in a single night. Timeouts are now
+  logged but treated as transient; genuine errors still alert.
+
 ## [2.0.0] - 2026-07-16
 
 Telegram notifier + Q&A bot, plus real usage-window reporting, built on top

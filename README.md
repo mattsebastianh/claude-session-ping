@@ -24,7 +24,9 @@ decide *when* to fire, only plain system scheduling and shell code.
   `LOGNAME` explicitly via `EnvironmentVariables`, templated with
   `{{HOME_DIR}}`/`{{USER}}` placeholders that `install.sh` fills in.
 - **`scripts/claude_session_ping.sh`** — the script launchd runs. It:
-  1. Checks the current time is one of the four windows above (safety net).
+  1. Checks the current time is at one of the four targets above, or up to
+     30 minutes after one (`CLAUDE_SESSION_PING_GRACE_MINUTES`) — see
+     [Sleep](#sleep) below.
   2. Sends a keepalive ping (defaults to `claude -p "..."`).
   3. If it detects a usage-limit/blocked response, retries up to **4 times**,
      waiting 5 minutes between attempts (5 attempts total per window).
@@ -43,6 +45,28 @@ lookup or parse fails, the script falls back to the scheduled assumption.
 
 Nothing here needs an IDE, terminal, or Claude Code session to stay open —
 once installed, `launchd` runs it independently as long as the Mac is on.
+
+### Sleep
+
+launchd does not wake the Mac for a `StartCalendarInterval` job. If the
+machine is asleep at a target time, the job is deferred until the next wake
+— in practice a macOS DarkWake minutes later. The script therefore accepts a
+run up to 30 minutes late and still treats it as that target's window,
+recording the target's label rather than the wake time. State prevents a
+second late fire from pinging the same window twice, and a failed attempt is
+still retried.
+
+Past the grace window the run is skipped: the window has moved far enough
+from the schedule that opening one would be more surprising than useful. To
+keep windows exactly on time, wake the Mac just before each target:
+
+```zsh
+sudo pmset repeat wake MTWRFSU 03:58:00
+```
+
+Sleep also breaks the Telegram bot's long poll — each DarkWake surfaces the
+dead socket as a read timeout. Those are logged but never alerted on, since
+they say nothing about the bot's health.
 
 ## Install
 
