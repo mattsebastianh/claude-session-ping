@@ -11,6 +11,7 @@ from telegram_qa_lib import (
     extract_output_text,
     format_day_time,
     format_time,
+    format_usage_reply,
     humanize_delta,
     match_intent,
     next_start_times,
@@ -205,6 +206,37 @@ class TestMatchIntent(unittest.TestCase):
         # order deliberately resolves to next_start. Lock that in so a
         # keyword reshuffle doesn't silently change behavior.
         self.assertEqual(match_intent("when does the next window end"), "next_start")
+
+
+class TestFormatUsageReply(unittest.TestCase):
+    NOW = int(datetime.datetime(2026, 7, 16, 16, 30, 0).timestamp())  # Thu
+    SESSION_RESET = int(datetime.datetime(2026, 7, 16, 19, 10, 0).timestamp())
+    WEEKLY_RESET = int(datetime.datetime(2026, 7, 18, 18, 0, 0).timestamp())  # Sat
+
+    def test_session_and_weekly(self):
+        usage = {
+            "session": {"pct": 32.0, "resets_at": self.SESSION_RESET},
+            "weekly": {"pct": 95.0, "resets_at": self.WEEKLY_RESET},
+        }
+        self.assertEqual(
+            format_usage_reply(usage, self.NOW),
+            "📊 Session: 32% used — resets 19:10 (2h 40m left)\n"
+            "📅 Weekly: 95% used — resets Sat 18:00 (2d 1h left)",
+        )
+
+    def test_session_only(self):
+        usage = {"session": {"pct": 5.0, "resets_at": self.SESSION_RESET}, "weekly": None}
+        self.assertEqual(
+            format_usage_reply(usage, self.NOW),
+            "📊 Session: 5% used — resets 19:10 (2h 40m left)",
+        )
+
+    def test_weekly_only(self):
+        usage = {"session": None, "weekly": {"pct": 41.0, "resets_at": self.WEEKLY_RESET}}
+        self.assertEqual(
+            format_usage_reply(usage, self.NOW),
+            "📅 Weekly: 41% used — resets Sat 18:00 (2d 1h left)",
+        )
 
 
 class TestParseEnvText(unittest.TestCase):

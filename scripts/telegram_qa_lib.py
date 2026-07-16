@@ -50,6 +50,26 @@ def humanize_delta(seconds: int) -> str:
     return f"{minutes}m"
 
 
+def format_usage_reply(usage: dict, now: int) -> str:
+    """Combined live-usage reply; omits whichever of session/weekly is None."""
+    lines = []
+    session = usage.get("session")
+    if session:
+        resets = session["resets_at"]
+        lines.append(
+            f"📊 Session: {session['pct']:.0f}% used — resets {format_time(resets)} "
+            f"({humanize_delta(resets - now)} left)"
+        )
+    weekly = usage.get("weekly")
+    if weekly:
+        resets = weekly["resets_at"]
+        lines.append(
+            f"📅 Weekly: {weekly['pct']:.0f}% used — resets {format_day_time(resets)} "
+            f"({humanize_delta(resets - now)} left)"
+        )
+    return "\n".join(lines)
+
+
 def extract_output_text(result: dict) -> str | None:
     """Pull the assistant text out of an OpenAI Responses API result.
 
