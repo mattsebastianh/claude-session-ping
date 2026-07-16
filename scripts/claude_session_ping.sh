@@ -2,6 +2,10 @@
 set -euo pipefail
 
 TARGETS=(0400 0900 1400 1900)
+# launchd defers a missed StartCalendarInterval job until the machine wakes,
+# so a 09:00 job can fire at 09:07 with the Mac having slept through 09:00.
+# Accept a late run for that long, else the window is silently never opened.
+GRACE_MINUTES="${CLAUDE_SESSION_PING_GRACE_MINUTES:-30}"
 MAX_RETRIES="${CLAUDE_SESSION_PING_MAX_RETRIES:-4}"
 RETRY_DELAY_SECONDS="${CLAUDE_SESSION_PING_RETRY_DELAY:-300}"
 LIMIT_PATTERN='(usage limit|quota|blocked|rate limit|try again later)'
@@ -25,12 +29,59 @@ fi
 mkdir -p "$(dirname "$LOG_FILE")"
 mkdir -p "$(dirname "$STATE_FILE")"
 
-if [[ ! " ${TARGETS[*]} " =~ " ${CURRENT_TIME} " ]]; then
-  echo "[$(date '+%Y-%m-%d %H:%M:%S')] skip (current time $CURRENT_TIME)" >>"$LOG_FILE"
+hhmm_to_minutes() {
+  print $(( 10#${1:0:2} * 60 + 10#${1:2:2} ))
+}
+
+# The target whose grace window contains now, or empty.
+MATCHED_TARGET=""
+CURRENT_MINUTES=$(hhmm_to_minutes "$CURRENT_TIME")
+for target in "${TARGETS[@]}"; do
+  delta=$(( CURRENT_MINUTES - $(hhmm_to_minutes "$target") ))
+  if (( delta >= 0 && delta <= GRACE_MINUTES )); then
+    MATCHED_TARGET="$target"
+    break
+  fi
+done
+
+if [[ -z "$MATCHED_TARGET" ]]; then
+  echo "[$(date '+%Y-%m-%d %H:%M:%S')] skip (current time $CURRENT_TIME, no target within ${GRACE_MINUTES}m)" >>"$LOG_FILE"
   exit 0
 fi
 
-WINDOW_LABEL="${CURRENT_TIME:0:2}:${CURRENT_TIME:2:2}"
+WINDOW_LABEL="${MATCHED_TARGET:0:2}:${MATCHED_TARGET:2:2}"
+
+# A late run means launchd may fire this same target again after the next
+# wake; without this guard that would burn a second ping on one window.
+already_pinged_this_window() {
+  [[ -f "$STATE_FILE" ]] || return 1
+  python3 - "$STATE_FILE" "$WINDOW_LABEL" <<'PY'
+import json, sys, time
+
+WINDOW_SECONDS = 5 * 60 * 60
+try:
+    with open(sys.argv[1]) as fh:
+        state = json.load(fh)
+except (OSError, ValueError):
+    sys.exit(1)
+if state.get("window_label") != sys.argv[2]:
+    sys.exit(1)
+if state.get("status") != "success":
+    sys.exit(1)  # a failed attempt should still be retried
+if time.time() - state.get("updated_at", 0) > WINDOW_SECONDS:
+    sys.exit(1)  # same label, but an earlier day's window
+sys.exit(0)
+PY
+}
+
+if already_pinged_this_window; then
+  echo "[$(date '+%Y-%m-%d %H:%M:%S')] skip (window $WINDOW_LABEL already pinged at $CURRENT_TIME)" >>"$LOG_FILE"
+  exit 0
+fi
+
+if [[ "$CURRENT_TIME" != "$MATCHED_TARGET" ]]; then
+  echo "[$(date '+%Y-%m-%d %H:%M:%S')] late run at $CURRENT_TIME for $WINDOW_LABEL target (launchd fired after wake)" >>"$LOG_FILE"
+fi
 
 write_state() {
   local ping_status="$1"
