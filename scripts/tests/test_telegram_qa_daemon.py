@@ -27,12 +27,32 @@ class NoRealUsageLookup(unittest.TestCase):
 
 
 class TestAnswerQuestion(NoRealUsageLookup):
-    def test_usage_with_no_state_infers_window_from_schedule(self):
+    def test_usage_lookup_failed_falls_back_to_labeled_estimate(self):
         # 22:07 — inside the 19:00 window (5h => ends 00:00), 62% elapsed.
         now = int(datetime.datetime(2026, 7, 13, 22, 7, 0).timestamp())
         with patch.object(daemon, "load_state", return_value=EMPTY_STATE), patch("time.time", return_value=now):
             reply = daemon.answer_question({}, "what's my session usage")
-        self.assertEqual(reply, "Current window (opened 19:00) is 62% elapsed, ends around 00:00.")
+        self.assertEqual(
+            reply,
+            "⚠️ Couldn't fetch live usage. Estimate from schedule:\n"
+            "📊 Session window ~62% elapsed — ends around 00:00",
+        )
+
+    def test_usage_reports_live_data_when_available(self):
+        now = int(datetime.datetime(2026, 7, 16, 16, 30, 0).timestamp())  # Thu
+        usage = {
+            "session": {"pct": 32.0, "resets_at": int(datetime.datetime(2026, 7, 16, 19, 10, 0).timestamp())},
+            "weekly": {"pct": 95.0, "resets_at": int(datetime.datetime(2026, 7, 18, 18, 0, 0).timestamp())},
+        }
+        with patch.object(daemon, "get_usage", return_value=usage), \
+                patch.object(daemon, "load_state", return_value=EMPTY_STATE), \
+                patch("time.time", return_value=now):
+            reply = daemon.answer_question({}, "what's my weekly limit?")
+        self.assertEqual(
+            reply,
+            "📊 Session: 32% used — resets 19:10 (2h 40m left)\n"
+            "📅 Weekly: 95% used — resets Sat 18:00 (2d 1h left)",
+        )
 
     def test_usage_with_no_state_outside_any_window(self):
         now = int(datetime.datetime(2026, 7, 13, 2, 30, 0).timestamp())
@@ -70,22 +90,30 @@ class TestAnswerQuestion(NoRealUsageLookup):
             reply = daemon.answer_question({}, "and the one after that?")
         self.assertEqual(reply, "The session window after next starts at 09:00 (in 10h 53m).")
 
-    def test_usage_with_tracked_window_reports_percent(self):
+    def test_usage_lookup_failed_estimates_from_tracked_window(self):
         window_start = int(datetime.datetime(2026, 7, 13, 9, 0, 0).timestamp())
         state = {"window_start": window_start, "window_label": "09:00", "status": "success"}
         now = window_start + WINDOW_SECONDS // 2
         with patch.object(daemon, "load_state", return_value=state), patch("time.time", return_value=now):
             reply = daemon.answer_question({}, "whats my usage")
-        self.assertEqual(reply, "Current window (opened 09:00) is 50% elapsed, ends around 14:00.")
+        self.assertEqual(
+            reply,
+            "⚠️ Couldn't fetch live usage. Estimate from schedule:\n"
+            "📊 Session window ~50% elapsed — ends around 14:00",
+        )
 
-    def test_stale_tracked_window_falls_back_to_schedule(self):
+    def test_usage_lookup_failed_stale_state_estimates_from_schedule(self):
         # State says 09:00 but it's 22:07 — that window closed at 14:00.
         window_start = int(datetime.datetime(2026, 7, 13, 9, 0, 0).timestamp())
         state = {"window_start": window_start, "window_label": "09:00", "status": "success"}
         now = int(datetime.datetime(2026, 7, 13, 22, 7, 0).timestamp())
         with patch.object(daemon, "load_state", return_value=state), patch("time.time", return_value=now):
             reply = daemon.answer_question({}, "whats my usage")
-        self.assertEqual(reply, "Current window (opened 19:00) is 62% elapsed, ends around 00:00.")
+        self.assertEqual(
+            reply,
+            "⚠️ Couldn't fetch live usage. Estimate from schedule:\n"
+            "📊 Session window ~62% elapsed — ends around 00:00",
+        )
 
 
 class TestFallbackPaths(NoRealUsageLookup):

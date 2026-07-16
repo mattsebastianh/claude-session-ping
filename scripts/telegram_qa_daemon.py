@@ -24,6 +24,7 @@ from telegram_qa_lib import (  # noqa: E402
     current_window_start,
     extract_output_text,
     format_time,
+    format_usage_reply,
     humanize_delta,
     match_intent,
     next_start_times,
@@ -195,14 +196,16 @@ def answer_question(env: dict, question: str) -> str:
     usage, window_start = fetch_usage_and_window(now)
 
     if intent == "usage":
+        if usage:
+            return format_usage_reply(usage, now)
         if not window_start:
             starts = next_start_times(now)
             nxt = f" Next one starts at {format_time(starts[0])}." if starts else ""
             return f"No session window is active right now.{nxt}"
         pct = usage_percent(window_start, now)
         return (
-            f"Current window (opened {format_time(window_start)}) is {pct:.0f}% elapsed, "
-            f"ends around {format_time(window_end(window_start))}."
+            "⚠️ Couldn't fetch live usage. Estimate from schedule:\n"
+            f"📊 Session window ~{pct:.0f}% elapsed — ends around {format_time(window_end(window_start))}"
         )
     if intent == "window_open":
         if not window_start:
