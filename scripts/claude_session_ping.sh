@@ -49,6 +49,7 @@ notify_telegram() {
   if ! curl -fsS -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
     -d "chat_id=${TELEGRAM_CHAT_ID}" \
     --data-urlencode "text=${message}" \
+    --data-urlencode 'link_preview_options={"is_disabled":true}' \
     >>"$LOG_FILE" 2>&1; then
     echo "[$(date '+%Y-%m-%d %H:%M:%S')] telegram notify failed" >>"$LOG_FILE"
   fi
