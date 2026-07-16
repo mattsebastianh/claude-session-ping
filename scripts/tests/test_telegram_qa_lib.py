@@ -180,6 +180,26 @@ class TestMatchIntent(unittest.TestCase):
     def test_friend_does_not_match_window_end(self):
         self.assertEqual(match_intent("I have a friend"), "none")
 
+    def test_weekly_limit_matches_usage(self):
+        self.assertEqual(match_intent("what's my weekly limit?"), "usage")
+
+    def test_used_matches_usage(self):
+        self.assertEqual(match_intent("have I used a lot today?"), "usage")
+
+    def test_quota_matches_usage(self):
+        self.assertEqual(match_intent("quota status please"), "usage")
+
+    def test_remaining_matches_usage(self):
+        self.assertEqual(match_intent("whats remaining this week"), "usage")
+
+    def test_caused_does_not_match_usage(self):
+        # "used" must be word-boundary matched.
+        self.assertEqual(match_intent("what caused the failure"), "none")
+
+    def test_unlimited_does_not_match_usage(self):
+        # "limit" must be word-boundary matched.
+        self.assertEqual(match_intent("is the plan unlimited"), "none")
+
     def test_precedence_next_window_end_prefers_next_start(self):
         # Ambiguous question hits both "next window" and "end"; intent
         # order deliberately resolves to next_start. Lock that in so a

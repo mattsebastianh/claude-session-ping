@@ -106,7 +106,7 @@ INTENT_KEYWORDS = {
     "next_start": ("next session", "next start", "next window", "reset", "next ping", "when can i"),
     "window_open": ("opened", "open", "began", "since when"),
     "window_end": ("end", "ending", "finish", "over"),
-    "usage": ("usage", "percent", "%", "how much", "elapsed"),
+    "usage": ("usage", "percent", "%", "how much", "elapsed", "weekly", "limit", "quota", "used", "remaining"),
 }
 
 INTENT_ORDER = ("next_next_start", "next_start", "window_open", "window_end", "usage")
@@ -114,7 +114,7 @@ INTENT_ORDER = ("next_next_start", "next_start", "window_open", "window_end", "u
 # Keywords that are short/common enough to false-positive as substrings of
 # unrelated words (e.g. "end" inside "weekend", "over" inside "recover").
 # These are matched with word boundaries instead of plain substring `in`.
-_WORD_BOUNDARY_KEYWORDS = {"end", "ending", "finish", "over", "open", "opened", "began"}
+_WORD_BOUNDARY_KEYWORDS = {"end", "ending", "finish", "over", "open", "opened", "began", "used", "limit"}
 
 
 def match_intent(text: str) -> str:
