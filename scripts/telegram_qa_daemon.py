@@ -128,7 +128,7 @@ def openai_answer(api_key: str, model: str, state: dict, question: str, window_s
         window_desc = "none active"
     system_prompt = (
         "You are a terse status bot for a Claude Code keepalive scheduler. "
-        "Daily windows open at 04:00, 09:00, 14:00, 19:00 and each stays active for 5 hours. "
+        "Daily windows open at 04:02, 09:02, 14:02, 19:02 and each stays active for 5 hours. "
         f"Current window: {window_desc}, "
         f"last_ping_status={state.get('status')}. "
         f"Next start: {format_time(starts[0]) if starts else 'unknown'}. "
@@ -167,7 +167,7 @@ def openai_answer(api_key: str, model: str, state: dict, question: str, window_s
 def fetch_usage_and_window(now: int) -> tuple[dict | None, int]:
     """Live usage dict plus window start; (None, fallback) when lookup fails.
 
-    The schedule is only an approximation: a 14:00 ping can land in a window
+    The schedule is only an approximation: a 14:02 ping can land in a window
     that really runs 14:09-19:09, so ask Claude for the truth when we can.
     """
     try:

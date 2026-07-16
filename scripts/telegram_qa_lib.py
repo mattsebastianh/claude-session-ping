@@ -8,7 +8,7 @@ from __future__ import annotations
 import datetime
 import re
 
-TARGETS = ["04:00", "09:00", "14:00", "19:00"]
+TARGETS = ["04:02", "09:02", "14:02", "19:02"]
 WINDOW_SECONDS = 5 * 60 * 60
 
 

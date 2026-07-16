@@ -50,14 +50,14 @@ class PingScriptCase(unittest.TestCase):
 
 class TestScheduleGuard(PingScriptCase):
     def test_pings_exactly_on_target(self):
-        code, log = self.run_ping("09:00")
+        code, log = self.run_ping("09:02")
         self.assertEqual(code, 0)
         self.assertIn("sent successfully", log)
 
     def test_pings_when_launchd_fires_late_after_wake(self):
-        # The real failure: Mac asleep at 09:00, DarkWake at 09:07:45,
+        # The real failure: Mac asleep at the target, DarkWake at 09:07:45,
         # launchd ran the missed job at 09:07:46 -> "skip (current time 0907)"
-        # and the 09:00 window never opened.
+        # and the window never opened.
         code, log = self.run_ping("09:07")
         self.assertEqual(code, 0)
         self.assertIn("sent successfully", log)
@@ -76,7 +76,7 @@ class TestScheduleGuard(PingScriptCase):
         self.assertIn("skip", log)
 
     def test_never_pings_before_a_target(self):
-        # 08:59 must not open the 09:00 window early.
+        # 08:59 must not open the 09:02 window early.
         code, log = self.run_ping("08:59")
         self.assertEqual(code, 0)
         self.assertIn("skip", log)
@@ -90,7 +90,7 @@ class TestScheduleGuard(PingScriptCase):
 
 class TestStateGuard(PingScriptCase):
     def test_second_run_in_same_grace_window_does_not_ping_twice(self):
-        code, log = self.run_ping("09:00")
+        code, log = self.run_ping("09:02")
         self.assertIn("sent successfully", log)
 
         # launchd can fire a missed job again after another wake.
@@ -101,7 +101,7 @@ class TestStateGuard(PingScriptCase):
     def test_retries_a_window_whose_ping_failed(self):
         # A failed attempt must not block a later retry inside the grace window.
         self.state_file.write_text(
-            '{"window_start": 0, "window_label": "09:00", "status": "failed", "updated_at": %d}'
+            '{"window_start": 0, "window_label": "09:02", "status": "failed", "updated_at": %d}'
             % int(__import__("time").time())
         )
         code, log = self.run_ping("09:07")
@@ -111,7 +111,7 @@ class TestStateGuard(PingScriptCase):
         # Same label, but yesterday's window: must still ping today.
         yesterday = int(__import__("time").time()) - 86400
         self.state_file.write_text(
-            '{"window_start": 0, "window_label": "09:00", "status": "success", "updated_at": %d}'
+            '{"window_start": 0, "window_label": "09:02", "status": "success", "updated_at": %d}'
             % yesterday
         )
         code, log = self.run_ping("09:07")
@@ -120,9 +120,9 @@ class TestStateGuard(PingScriptCase):
 
 class TestWindowLabel(PingScriptCase):
     def test_late_run_records_the_target_not_the_wake_time(self):
-        # State must say the 09:00 window, not "09:07".
+        # State must say the 09:02 window, not "09:07".
         self.run_ping("09:07")
-        self.assertIn('"window_label": "09:00"', self.state_file.read_text())
+        self.assertIn('"window_label": "09:02"', self.state_file.read_text())
 
 
 if __name__ == "__main__":

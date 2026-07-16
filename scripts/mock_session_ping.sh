@@ -4,7 +4,7 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"
 
-MOCK_TIME="${1:-09:00}"
+MOCK_TIME="${1:-09:02}"
 LOG_FILE="$ROOT/logs/claude-session-ping.log"
 
 mkdir -p "$ROOT/logs"

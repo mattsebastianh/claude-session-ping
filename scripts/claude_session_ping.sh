@@ -1,9 +1,9 @@
 #!/usr/bin/env zsh
 set -euo pipefail
 
-TARGETS=(0400 0900 1400 1900)
+TARGETS=(0402 0902 1402 1902)
 # launchd defers a missed StartCalendarInterval job until the machine wakes,
-# so a 09:00 job can fire at 09:07 with the Mac having slept through 09:00.
+# so a 09:02 job can fire at 09:07 with the Mac having slept through 09:02.
 # Accept a late run for that long, else the window is silently never opened.
 GRACE_MINUTES="${CLAUDE_SESSION_PING_GRACE_MINUTES:-30}"
 MAX_RETRIES="${CLAUDE_SESSION_PING_MAX_RETRIES:-4}"

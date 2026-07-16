@@ -7,6 +7,12 @@ and this project follows [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Changed
+- Schedule shifted two minutes later, to 04:02 / 09:02 / 14:02 / 19:02, so a
+  ping lands clear of the previous window's exact expiry rather than racing
+  it. Applies to the launch agent, the ping script, and the bot's schedule
+  answers.
+
 ### Fixed
 - Keepalive windows are no longer silently missed when the Mac is asleep at
   a target time. launchd defers a missed `StartCalendarInterval` job until

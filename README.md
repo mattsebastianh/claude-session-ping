@@ -12,10 +12,10 @@ decide *when* to fire, only plain system scheduling and shell code.
 
 - **`launchd/com.claude-session-ping.plist`** — a launch agent template.
   macOS's own scheduler (`StartCalendarInterval`) fires it daily at:
-  - 04:00
-  - 09:00
-  - 14:00
-  - 19:00
+  - 04:02
+  - 09:02
+  - 14:02
+  - 19:02
 
   launchd runs jobs with a minimal environment (bare `PATH`, no `USER`/
   `LOGNAME`), which isn't enough to find the `claude` CLI or for it to look
@@ -37,7 +37,7 @@ decide *when* to fire, only plain system scheduling and shell code.
 
 The schedule is only an approximation of the real window, which is why step 5
 exists. A window starts when you first use Claude, not when the clock says
-04:00 — so a 14:00 ping can land in a window that really runs 14:09–19:09. If
+04:02 — so a 14:02 ping can land in a window that really runs 14:09–19:09. If
 a window is already open, the ping is absorbed into it and **no new window
 opens**; the notification says so explicitly instead of claiming success.
 Reading `/usage` costs no quota and doesn't itself open a window. If the
@@ -61,7 +61,7 @@ from the schedule that opening one would be more surprising than useful. To
 keep windows exactly on time, wake the Mac just before each target:
 
 ```zsh
-sudo pmset repeat wake MTWRFSU 03:58:00
+sudo pmset repeat wake MTWRFSU 04:00:00
 ```
 
 Sleep also breaks the Telegram bot's long poll — each DarkWake surfaces the
@@ -110,7 +110,7 @@ python3 -m unittest discover -s scripts/tests -t .
 Simulate a keepalive trigger without waiting for the real time:
 
 ```zsh
-CLAUDE_SESSION_PING_MOCK_TIME='09:00' ./scripts/claude_session_ping.sh
+CLAUDE_SESSION_PING_MOCK_TIME='09:02' ./scripts/claude_session_ping.sh
 ```
 
 Or use `scripts/mock_session_ping.sh`, which does the same but substitutes a
@@ -118,7 +118,7 @@ fake `echo` command for the real Claude ping and prints the resulting log
 from `logs/claude-session-ping.log`:
 
 ```zsh
-./scripts/mock_session_ping.sh 09:00
+./scripts/mock_session_ping.sh 09:02
 ```
 
 ## Uninstall
