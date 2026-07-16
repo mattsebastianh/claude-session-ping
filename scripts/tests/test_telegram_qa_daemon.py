@@ -147,36 +147,43 @@ class TestFallbackPaths(NoRealUsageLookup):
         log_mock.assert_not_called()
 
 
-class TestResolveWindowStart(unittest.TestCase):
+class TestFetchUsageAndWindow(unittest.TestCase):
     def test_prefers_real_usage_over_schedule(self):
         now = int(datetime.datetime(2026, 7, 15, 14, 30, 0).timestamp())
         resets_at = int(datetime.datetime(2026, 7, 15, 19, 9, 0).timestamp())
         usage = {"session": {"pct": 5.0, "resets_at": resets_at}, "weekly": None}
         with patch.object(daemon, "get_usage", return_value=usage), \
              patch.object(daemon, "load_state", return_value=EMPTY_STATE):
-            self.assertEqual(
-                daemon.resolve_window_start(now),
-                int(datetime.datetime(2026, 7, 15, 14, 9, 0).timestamp()),
-            )
+            got_usage, window_start = daemon.fetch_usage_and_window(now)
+        self.assertEqual(got_usage, usage)
+        self.assertEqual(window_start, int(datetime.datetime(2026, 7, 15, 14, 9, 0).timestamp()))
 
     def test_falls_back_to_schedule_when_usage_unavailable(self):
         now = int(datetime.datetime(2026, 7, 15, 22, 7, 0).timestamp())
         with patch.object(daemon, "get_usage", return_value=None), \
              patch.object(daemon, "load_state", return_value=EMPTY_STATE):
-            self.assertEqual(
-                daemon.resolve_window_start(now),
-                int(datetime.datetime(2026, 7, 15, 19, 0, 0).timestamp()),
-            )
+            got_usage, window_start = daemon.fetch_usage_and_window(now)
+        self.assertIsNone(got_usage)
+        self.assertEqual(window_start, int(datetime.datetime(2026, 7, 15, 19, 0, 0).timestamp()))
 
     def test_falls_back_to_schedule_when_usage_raises(self):
         now = int(datetime.datetime(2026, 7, 15, 22, 7, 0).timestamp())
         with patch.object(daemon, "get_usage", side_effect=OSError("boom")), \
              patch.object(daemon, "load_state", return_value=EMPTY_STATE), \
              patch.object(daemon, "log"):
-            self.assertEqual(
-                daemon.resolve_window_start(now),
-                int(datetime.datetime(2026, 7, 15, 19, 0, 0).timestamp()),
-            )
+            got_usage, window_start = daemon.fetch_usage_and_window(now)
+        self.assertIsNone(got_usage)
+        self.assertEqual(window_start, int(datetime.datetime(2026, 7, 15, 19, 0, 0).timestamp()))
+
+    def test_weekly_only_usage_keeps_schedule_window(self):
+        # No session entry -> window start still comes from the schedule path.
+        now = int(datetime.datetime(2026, 7, 15, 22, 7, 0).timestamp())
+        usage = {"session": None, "weekly": {"pct": 41.0, "resets_at": now + 86400}}
+        with patch.object(daemon, "get_usage", return_value=usage), \
+             patch.object(daemon, "load_state", return_value=EMPTY_STATE):
+            got_usage, window_start = daemon.fetch_usage_and_window(now)
+        self.assertEqual(got_usage, usage)
+        self.assertEqual(window_start, int(datetime.datetime(2026, 7, 15, 19, 0, 0).timestamp()))
 
     def test_next_start_answers_without_usage_lookup(self):
         # Schedule-only answers must not pay for the CLI subprocess.

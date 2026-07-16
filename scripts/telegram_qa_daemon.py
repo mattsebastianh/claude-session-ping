@@ -154,8 +154,8 @@ def openai_answer(api_key: str, model: str, state: dict, question: str, window_s
         return "Sorry, I couldn't reach the answering service right now."
 
 
-def resolve_window_start(now: int) -> int:
-    """Real usage window if available, else state file, else schedule inference.
+def fetch_usage_and_window(now: int) -> tuple[dict | None, int]:
+    """Live usage dict plus window start; (None, fallback) when lookup fails.
 
     The schedule is only an approximation: a 14:00 ping can land in a window
     that really runs 14:09-19:09, so ask Claude for the truth when we can.
@@ -166,13 +166,13 @@ def resolve_window_start(now: int) -> int:
         log(f"usage lookup failed: {exc}")
         usage = None
     if usage and usage.get("session"):
-        return derive_window_start(usage["session"]["resets_at"])
+        return usage, derive_window_start(usage["session"]["resets_at"])
 
     state = load_state()
     window_start = state.get("window_start") or current_window_start(now)
     if window_start and now >= window_end(window_start):
         window_start = current_window_start(now)
-    return window_start
+    return usage, window_start
 
 
 def answer_question(env: dict, question: str) -> str:
@@ -192,7 +192,7 @@ def answer_question(env: dict, question: str) -> str:
             return "I couldn't work out the session start time after next."
         return f"The session window after next starts at {format_time(starts[1])} (in {humanize_delta(starts[1] - now)})."
 
-    window_start = resolve_window_start(now)
+    usage, window_start = fetch_usage_and_window(now)
 
     if intent == "usage":
         if not window_start:
