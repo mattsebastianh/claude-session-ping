@@ -1,4 +1,5 @@
 import datetime
+import json
 import os
 import sys
 import unittest
@@ -139,6 +140,32 @@ class TestFallbackPaths(NoRealUsageLookup):
         with patch("urllib.request.urlopen", return_value=fake), patch.object(daemon, "log"):
             reply = daemon.openai_answer("sk-test", "gpt-5-nano", EMPTY_STATE, "hi")
         self.assertEqual(reply, "Sorry, I couldn't reach the answering service right now.")
+
+    def test_openai_prompt_includes_live_usage(self):
+        import io
+
+        captured = {}
+
+        def fake_urlopen(req, timeout=0):
+            captured["body"] = json.loads(req.data.decode())
+            fake = io.BytesIO(b'{"output": [{"type": "message", "content": [{"type": "output_text", "text": "ok"}]}]}')
+            fake.__enter__ = lambda s: s
+            fake.__exit__ = lambda s, *a: False
+            return fake
+
+        usage = {
+            "session": {"pct": 32.0, "resets_at": int(datetime.datetime(2026, 7, 16, 19, 10, 0).timestamp())},
+            "weekly": {"pct": 95.0, "resets_at": int(datetime.datetime(2026, 7, 18, 18, 0, 0).timestamp())},
+        }
+        with patch("urllib.request.urlopen", side_effect=fake_urlopen):
+            reply = daemon.openai_answer("sk-test", "gpt-5-nano", EMPTY_STATE, "am I close to my cap?", usage=usage)
+
+        self.assertEqual(reply, "ok")
+        system_prompt = captured["body"]["input"][0]["content"]
+        self.assertIn(
+            "Live usage: session 32% used, resets 19:10; weekly 95% used, resets Sat 18:00. ",
+            system_prompt,
+        )
 
     def test_get_updates_network_failure_sleeps_before_retry(self):
         import urllib.error

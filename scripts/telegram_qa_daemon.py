@@ -30,6 +30,7 @@ from telegram_qa_lib import (  # noqa: E402
     next_start_times,
     parse_env_text,
     usage_percent,
+    usage_prompt_line,
     window_end,
 )
 from usage_lib import derive_window_start  # noqa: E402
@@ -107,7 +108,7 @@ def get_updates(token: str, offset: int | None) -> tuple[list[dict], bool, str |
     return result.get("result", []), False, None
 
 
-def openai_answer(api_key: str, model: str, state: dict, question: str, window_start: int = 0) -> str:
+def openai_answer(api_key: str, model: str, state: dict, question: str, window_start: int = 0, usage: dict | None = None) -> str:
     now = int(time.time())
     starts = next_start_times(now)
     if window_start:
@@ -125,6 +126,7 @@ def openai_answer(api_key: str, model: str, state: dict, question: str, window_s
         f"last_ping_status={state.get('status')}. "
         f"Next start: {format_time(starts[0]) if starts else 'unknown'}. "
         f"Next next start: {format_time(starts[1]) if len(starts) > 1 else 'unknown'}. "
+        f"{usage_prompt_line(usage)}"
         "Answer the user's question in one short sentence using this data."
     )
     payload = {
@@ -222,7 +224,7 @@ def answer_question(env: dict, question: str) -> str:
     if not api_key:
         return "I don't recognize that question and no OPENAI_API_KEY is configured."
     model = env.get("OPENAI_MODEL", DEFAULT_OPENAI_MODEL)
-    return openai_answer(api_key, model, state, question, window_start)
+    return openai_answer(api_key, model, state, question, window_start, usage)
 
 
 def run() -> None:
