@@ -12,6 +12,19 @@
     <string>{{PROJECT_DIR}}/scripts/telegram_qa_daemon.py</string>
   </array>
 
+  <!-- launchd's default PATH is /usr/bin:/bin:/usr/sbin:/sbin, which does not
+       include claude's install dir, so the daemon's /usage lookup silently
+       fell back to the schedule. USER/LOGNAME keep `claude` logged in. -->
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>PATH</key>
+    <string>{{HOME_DIR}}/.local/bin:/usr/local/bin:/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
+    <key>USER</key>
+    <string>{{USER}}</string>
+    <key>LOGNAME</key>
+    <string>{{USER}}</string>
+  </dict>
+
   <key>RunAtLoad</key>
   <true/>
 
