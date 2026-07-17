@@ -13,6 +13,12 @@ chmod +x "$ROOT/scripts/claude_session_ping.sh"
 launchctl unload "$PLIST_DEST" 2>/dev/null || true
 launchctl load "$PLIST_DEST"
 
+# Remove any stray one-shot backup agents from a previous run.
+for backup_plist in "$HOME/Library/LaunchAgents"/com.claude-session-ping.backup-*.plist(N); do
+  launchctl unload "$backup_plist" 2>/dev/null || true
+  rm -f "$backup_plist"
+done
+
 echo "Installed and loaded launch agent: $PLIST_DEST"
 echo "Use 'launchctl list | grep claude-session-ping' to confirm"
 

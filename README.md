@@ -68,6 +68,29 @@ Sleep also breaks the Telegram bot's long poll — each DarkWake surfaces the
 dead socket as a read timeout. Those are logged but never alerted on, since
 they say nothing about the bot's health.
 
+### Backup ping
+
+The fixed 04:02/09:02/14:02/19:02 schedule is only ever an approximation —
+real windows drift away from it (see [How it works](#how-it-works) above), so
+a later scheduled ping can land inside a window that's still open rather than
+opening a fresh one. When that happens, the ping is absorbed into the
+existing window and no new coverage is created, which would otherwise leave
+a gap once that window actually ends.
+
+To close that gap, a no-new-window ping schedules a one-shot `launchd` job to
+fire shortly after the real window ends — window end +
+`CLAUDE_SESSION_PING_BACKUP_BUFFER` seconds (default 120) — and re-open
+coverage automatically. If that backup ping also lands in an already-open
+window (e.g. you used Claude again in the meantime), it re-chains another
+backup the same way, repeating until a fresh window actually opens. Each
+backup fire installs its own one-shot launch agent, labeled
+`com.claude-session-ping.backup-HHMM.plist` in `~/Library/LaunchAgents`.
+
+Backups are suppressed once the fire time would fall past
+`CLAUDE_SESSION_PING_BACKUP_CUTOFF` (default 23:02) local time — without that
+cutoff, a very late-running chain could push a backup into the early morning
+and collide with, or crowd out, the 04:02 target.
+
 ## Install
 
 ```zsh

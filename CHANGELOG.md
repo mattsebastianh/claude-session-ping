@@ -7,6 +7,13 @@ and this project follows [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+- Backup ping: when a scheduled ping finds an existing window still open, a
+  one-shot launchd job is scheduled to re-open coverage just after that window
+  ends (window end + `CLAUDE_SESSION_PING_BACKUP_BUFFER`, default 120s). It
+  re-chains until a fresh window opens and is suppressed past
+  `CLAUDE_SESSION_PING_BACKUP_CUTOFF` (default 23:02) to protect the 04:02 target.
+
 ## [2.1.0] - 2026-07-16
 
 ### Changed
