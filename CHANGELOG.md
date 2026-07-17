@@ -7,6 +7,8 @@ and this project follows [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [2.2.0] - 2026-07-17
+
 ### Added
 - Backup ping: when a scheduled ping finds an existing window still open, a
   one-shot launchd job is scheduled to re-open coverage just after that window
@@ -140,7 +142,8 @@ Initial release: a `launchd`-based keepalive ping, no LLM required to decide
 - `install.sh` to install the launch agent.
 - MIT license and initial README.
 
-[Unreleased]: https://github.com/mattsebastianh/claude-session-ping/compare/v2.1.0...HEAD
+[Unreleased]: https://github.com/mattsebastianh/claude-session-ping/compare/v2.2.0...HEAD
+[2.2.0]: https://github.com/mattsebastianh/claude-session-ping/compare/v2.1.0...v2.2.0
 [2.1.0]: https://github.com/mattsebastianh/claude-session-ping/compare/v2.0.1...v2.1.0
 [2.0.1]: https://github.com/mattsebastianh/claude-session-ping/compare/v2.0.0...v2.0.1
 [2.0.0]: https://github.com/mattsebastianh/claude-session-ping/compare/v1.0.0...v2.0.0
