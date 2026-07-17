@@ -21,8 +21,7 @@ def epoch(y, mo, d, h, mi):
 class TestComputeBackup(unittest.TestCase):
     def test_adds_buffer_to_resets_at(self):
         resets = epoch(2026, 7, 17, 14, 30)
-        now = epoch(2026, 7, 17, 14, 2)
-        result = compute_backup(resets, 120, "23:02", now)
+        result = compute_backup(resets, 120, "23:02")
         self.assertEqual(result["hhmm"], "14:32")
         self.assertEqual(result["hour"], 14)
         self.assertEqual(result["minute"], 32)
@@ -30,31 +29,26 @@ class TestComputeBackup(unittest.TestCase):
 
     def test_suppressed_after_cutoff(self):
         resets = epoch(2026, 7, 17, 23, 5)  # +120s -> 23:07 > 23:02
-        now = epoch(2026, 7, 17, 19, 2)
-        self.assertIsNone(compute_backup(resets, 120, "23:02", now))
+        self.assertIsNone(compute_backup(resets, 120, "23:02"))
 
     def test_allowed_exactly_at_cutoff(self):
         resets = epoch(2026, 7, 17, 23, 0)  # +120s -> 23:02 == cutoff
-        now = epoch(2026, 7, 17, 19, 2)
-        result = compute_backup(resets, 120, "23:02", now)
+        result = compute_backup(resets, 120, "23:02")
         self.assertEqual(result["hhmm"], "23:02")
 
     def test_suppressed_in_overnight_dead_zone(self):
         resets = epoch(2026, 7, 18, 0, 40)  # +120s -> 00:42, before 04:02
-        now = epoch(2026, 7, 17, 19, 2)
-        self.assertIsNone(compute_backup(resets, 120, "23:02", now))
+        self.assertIsNone(compute_backup(resets, 120, "23:02"))
 
     def test_allowed_at_lower_bound(self):
         resets = epoch(2026, 7, 17, 4, 0)  # +120s -> 04:02 == first target
-        now = epoch(2026, 7, 17, 3, 40)
-        result = compute_backup(resets, 120, "23:02", now)
+        result = compute_backup(resets, 120, "23:02")
         self.assertEqual(result["hhmm"], "04:02")
 
     def test_cli_prints_schedule_lines(self):
         resets = epoch(2026, 7, 17, 14, 30)
-        now = epoch(2026, 7, 17, 14, 2)
         out = subprocess.run(
-            [sys.executable, str(HELPER), str(resets), "120", "23:02", str(now)],
+            [sys.executable, str(HELPER), str(resets), "120", "23:02"],
             capture_output=True, text=True, check=True,
         ).stdout
         self.assertIn("BACKUP_OK=1", out)
@@ -64,9 +58,8 @@ class TestComputeBackup(unittest.TestCase):
 
     def test_cli_prints_suppressed(self):
         resets = epoch(2026, 7, 17, 23, 5)
-        now = epoch(2026, 7, 17, 19, 2)
         out = subprocess.run(
-            [sys.executable, str(HELPER), str(resets), "120", "23:02", str(now)],
+            [sys.executable, str(HELPER), str(resets), "120", "23:02"],
             capture_output=True, text=True, check=True,
         ).stdout
         self.assertIn("BACKUP_OK=0", out)

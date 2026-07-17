@@ -23,7 +23,6 @@ def compute_backup(
     resets_at: int,
     buffer: int,
     cutoff: str,
-    now: int,
     first_target: str = FIRST_TARGET,
 ) -> dict | None:
     """Fire-time for a backup at resets_at+buffer, or None if outside the window.
@@ -32,6 +31,10 @@ def compute_backup(
     backup opened after the cutoff would still be open at the next morning's
     04:02 target (5h window), wasting that slot; one before first_target sits
     in the overnight gap the schedule intentionally leaves uncovered.
+
+    A past fire time needs no guard here: scheduling only ever runs when the
+    caller saw WINDOW_IS_NEW=0 (the window is still open), so resets_at is in
+    the future and fire_epoch is later still.
     """
     fire_epoch = resets_at + buffer
     dt = datetime.datetime.fromtimestamp(fire_epoch)
@@ -49,8 +52,7 @@ def compute_backup(
 def main(argv: list[str]) -> int:
     resets_at, buffer = int(argv[1]), int(argv[2])
     cutoff = argv[3]
-    now = int(argv[4]) if len(argv) > 4 else int(datetime.datetime.now().timestamp())
-    result = compute_backup(resets_at, buffer, cutoff, now)
+    result = compute_backup(resets_at, buffer, cutoff)
     if result is None:
         print("BACKUP_OK=0")
         return 0
