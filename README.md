@@ -65,8 +65,9 @@ sudo pmset repeat wake MTWRFSU 04:00:00
 ```
 
 Sleep also breaks the Telegram bot's long poll — each DarkWake surfaces the
-dead socket as a read timeout. Those are logged but never alerted on, since
-they say nothing about the bot's health.
+dead socket as a read timeout. Those are silently retried and never alerted
+on, since they say nothing about the bot's health; only genuine errors
+(DNS failures, network unreachable) are logged and count toward the alert.
 
 ### Backup ping
 

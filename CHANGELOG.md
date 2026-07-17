@@ -14,6 +14,14 @@ and this project follows [Semantic Versioning](https://semver.org/).
   re-chains until a fresh window opens and is suppressed past
   `CLAUDE_SESSION_PING_BACKUP_CUTOFF` (default 23:02) to protect the 04:02 target.
 
+### Fixed
+- Transient `getUpdates` read timeouts (the routine macOS DarkWake case — every
+  sleep freezes the long-poll socket and wakes to one timeout) are no longer
+  logged. They were already excluded from the outage alert, but each one still
+  wrote a log line: ~1-3/hour, 134 lines in one 2.5-day stretch, drowning out
+  genuine errors. Outage-worthy failures (DNS, network-unreachable) still log
+  and still count toward the alert.
+
 ## [2.1.0] - 2026-07-16
 
 ### Changed
