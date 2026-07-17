@@ -15,6 +15,13 @@ LOG_FILE="${CLAUDE_SESSION_PING_LOG:-$(cd "$(dirname "$0")/.." && pwd)/logs/clau
 STATE_FILE="${CLAUDE_SESSION_PING_STATE_FILE:-$(cd "$(dirname "$0")/.." && pwd)/.claude-session-ping/state.json}"
 ENV_FILE="${CLAUDE_SESSION_PING_ENV_FILE:-$(cd "$(dirname "$0")/.." && pwd)/.env}"
 MOCK_TIME="${CLAUDE_SESSION_PING_MOCK_TIME:-}"
+BACKUP_LABEL="${CLAUDE_SESSION_PING_BACKUP_LABEL:-}"
+BACKUP_BUFFER="${CLAUDE_SESSION_PING_BACKUP_BUFFER:-120}"
+BACKUP_CUTOFF="${CLAUDE_SESSION_PING_BACKUP_CUTOFF:-23:02}"
+BACKUP_DIR="${CLAUDE_SESSION_PING_BACKUP_DIR:-$HOME/Library/LaunchAgents}"
+LAUNCHCTL="${CLAUDE_SESSION_PING_LAUNCHCTL:-launchctl}"
+SCRIPT_PATH="$(cd "$(dirname "$0")" && pwd)/$(basename "$0")"
+BACKUP_HELPER="$(cd "$(dirname "$0")" && pwd)/backup_schedule.py"
 
 if [[ -n "$MOCK_TIME" ]]; then
   CURRENT_TIME="${MOCK_TIME//:/}"
@@ -35,14 +42,20 @@ hhmm_to_minutes() {
 
 # The target whose grace window contains now, or empty.
 MATCHED_TARGET=""
-CURRENT_MINUTES=$(hhmm_to_minutes "$CURRENT_TIME")
-for target in "${TARGETS[@]}"; do
-  delta=$(( CURRENT_MINUTES - $(hhmm_to_minutes "$target") ))
-  if (( delta >= 0 && delta <= GRACE_MINUTES )); then
-    MATCHED_TARGET="$target"
-    break
-  fi
-done
+if [[ -n "$BACKUP_LABEL" ]]; then
+  # Backup mode: fire off-schedule at an existing window's end. The label is
+  # the backup's own HH:MM, so skip grace-window matching entirely.
+  MATCHED_TARGET="${BACKUP_LABEL//:/}"
+else
+  CURRENT_MINUTES=$(hhmm_to_minutes "$CURRENT_TIME")
+  for target in "${TARGETS[@]}"; do
+    delta=$(( CURRENT_MINUTES - $(hhmm_to_minutes "$target") ))
+    if (( delta >= 0 && delta <= GRACE_MINUTES )); then
+      MATCHED_TARGET="$target"
+      break
+    fi
+  done
+fi
 
 if [[ -z "$MATCHED_TARGET" ]]; then
   echo "[$(date '+%Y-%m-%d %H:%M:%S')] skip (current time $CURRENT_TIME, no target within ${GRACE_MINUTES}m)" >>"$LOG_FILE"
