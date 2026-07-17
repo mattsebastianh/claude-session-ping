@@ -105,6 +105,99 @@ write_state() {
 JSON
 }
 
+backup_plist_path() {
+  print "$BACKUP_DIR/com.claude-session-ping.backup-${1}.plist"
+}
+
+# Unload and remove every pending backup plist. Globs so a fresh window reaps
+# whatever is scheduled without knowing its label.
+clear_backup() {
+  setopt local_options null_glob
+  local plist label
+  for plist in "$BACKUP_DIR"/com.claude-session-ping.backup-*.plist; do
+    label="${${plist:t}%.plist}"
+    "$LAUNCHCTL" unload "$plist" 2>>"$LOG_FILE" || true
+    rm -f "$plist"
+    echo "[$(date '+%Y-%m-%d %H:%M:%S')] cleared backup $label" >>"$LOG_FILE"
+  done
+}
+
+# Schedule a one-shot backup ping for when the current window ends. $1 is the
+# window's reset epoch. Suppressed outside the [04:02, cutoff] fire window.
+schedule_backup() {
+  local resets_at="$1"
+  local out
+  if ! out=$(python3 "$BACKUP_HELPER" "$resets_at" "$BACKUP_BUFFER" "$BACKUP_CUTOFF" 2>>"$LOG_FILE"); then
+    echo "[$(date '+%Y-%m-%d %H:%M:%S')] backup schedule helper failed" >>"$LOG_FILE"
+    return 0
+  fi
+  local BACKUP_OK=0 BACKUP_HHMM="" BACKUP_HOUR="" BACKUP_MINUTE=""
+  local line
+  for line in ${(f)out}; do
+    case "$line" in
+      BACKUP_OK=*|BACKUP_HHMM=*|BACKUP_HOUR=*|BACKUP_MINUTE=*) eval "$line" ;;
+    esac
+  done
+  if [[ "$BACKUP_OK" != "1" ]]; then
+    echo "[$(date '+%Y-%m-%d %H:%M:%S')] no backup scheduled (outside ${BACKUP_CUTOFF} cutoff)" >>"$LOG_FILE"
+    clear_backup
+    return 0
+  fi
+
+  mkdir -p "$BACKUP_DIR"
+  local new_plist
+  new_plist="$(backup_plist_path "${BACKUP_HHMM//:/}")"
+  cat >"$new_plist" <<PLIST
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.claude-session-ping.backup-${BACKUP_HHMM//:/}</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>/usr/bin/env</string>
+    <string>zsh</string>
+    <string>${SCRIPT_PATH}</string>
+  </array>
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>PATH</key>
+    <string>${PATH}</string>
+    <key>CLAUDE_SESSION_PING_BACKUP_LABEL</key>
+    <string>${BACKUP_HHMM}</string>
+  </dict>
+  <key>RunAtLoad</key>
+  <false/>
+  <key>StartCalendarInterval</key>
+  <array>
+    <dict>
+      <key>Hour</key>
+      <integer>${BACKUP_HOUR}</integer>
+      <key>Minute</key>
+      <integer>${BACKUP_MINUTE}</integer>
+    </dict>
+  </array>
+</dict>
+</plist>
+PLIST
+  chmod 644 "$new_plist"
+
+  # Load the new label FIRST, then clear the others. launchctl unload SIGTERMs
+  # the running (backup) process, so the replacement must already be loaded.
+  "$LAUNCHCTL" unload "$new_plist" 2>/dev/null || true
+  "$LAUNCHCTL" load "$new_plist" 2>>"$LOG_FILE" || true
+  echo "[$(date '+%Y-%m-%d %H:%M:%S')] scheduled backup at ${BACKUP_HHMM}" >>"$LOG_FILE"
+
+  setopt local_options null_glob
+  local plist
+  for plist in "$BACKUP_DIR"/com.claude-session-ping.backup-*.plist; do
+    [[ "$plist" == "$new_plist" ]] && continue
+    "$LAUNCHCTL" unload "$plist" 2>>"$LOG_FILE" || true
+    rm -f "$plist"
+  done
+}
+
 notify_telegram() {
   local message="$1"
   if [[ -z "${TELEGRAM_BOT_TOKEN:-}" || -z "${TELEGRAM_CHAT_ID:-}" ]]; then
@@ -220,6 +313,12 @@ while true; do
       echo "[$(date '+%Y-%m-%d %H:%M:%S')] usage lookup unavailable, using scheduled window" >>"$LOG_FILE"
     fi
     notify_telegram "$(success_message)"
+    # Backup ping: only when we know the real window and it absorbed this ping.
+    if [[ "${USAGE_OK:-0}" == "1" && "${WINDOW_IS_NEW:-0}" == "0" ]]; then
+      schedule_backup "$SESSION_RESETS_AT"
+    else
+      clear_backup
+    fi
     exit 0
   fi
 
