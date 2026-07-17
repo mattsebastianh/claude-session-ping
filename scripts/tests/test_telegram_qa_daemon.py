@@ -181,8 +181,10 @@ class TestFallbackPaths(NoRealUsageLookup):
         sleep_mock.assert_called_once_with(5)
         log_mock.assert_called_once()
 
-    def test_get_updates_read_timeout_is_transient(self):
-        # The macOS DarkWake case: logged for diagnostics, but not an outage.
+    def test_get_updates_read_timeout_is_transient_and_silent(self):
+        # The macOS DarkWake case: every wake freezes the long-poll socket and
+        # surfaces as a read timeout. It's not an outage, so don't log it — one
+        # line per wake is pure noise (~1-3/hour). See counts_toward_outage.
         with patch("urllib.request.urlopen", side_effect=TimeoutError("The read operation timed out")), \
                 patch.object(daemon, "log") as log_mock, \
                 patch("time.sleep"):
@@ -191,7 +193,7 @@ class TestFallbackPaths(NoRealUsageLookup):
         self.assertEqual(result, [])
         self.assertEqual(status, "transient")
         self.assertEqual(error_message, "The read operation timed out")
-        log_mock.assert_called_once()
+        log_mock.assert_not_called()
 
     def test_maybe_notify_poll_failure_alerts_after_threshold(self):
         with patch.object(daemon, "send_message") as send_message_mock, \

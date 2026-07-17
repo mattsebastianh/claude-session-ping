@@ -109,9 +109,14 @@ def get_updates(token: str, offset: int | None) -> tuple[list[dict], str, str | 
     try:
         result = telegram_request(token, "getUpdates", params, timeout=POLL_TIMEOUT_SECONDS + 10)
     except (urllib.error.URLError, OSError, json.JSONDecodeError) as exc:
-        log(f"getUpdates failed: {exc}")
+        is_outage = counts_toward_outage(exc)
+        # Transient timeouts are the macOS DarkWake case: every sleep freezes
+        # the long-poll socket and wakes to one read timeout. Logging each one
+        # is pure noise (~1-3/hour), so only log outage-worthy failures.
+        if is_outage:
+            log(f"getUpdates failed: {exc}")
         time.sleep(5)
-        return [], "error" if counts_toward_outage(exc) else "transient", str(exc)
+        return [], "error" if is_outage else "transient", str(exc)
     return result.get("result", []), "ok", None
 
 
