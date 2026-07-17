@@ -220,6 +220,30 @@ class TestBackupMode(PingScriptCase):
         plists = list(backup_dir.glob("com.claude-session-ping.backup-*.plist"))
         self.assertEqual(len(plists), 0)
 
+    def test_reschedule_loads_new_label_before_unloading_old(self):
+        # The core correctness property: launchctl unload SIGTERMs the running
+        # backup process, so a re-chain must load the NEW (differently-labelled)
+        # job before it unloads the OLD one — otherwise the chain dies mid-swap.
+        env, calls, backup_dir = self._backup_env()
+        old = backup_dir / "com.claude-session-ping.backup-1200.plist"
+        old.write_text("<plist/>")
+        # Window ends 14:30 -> fire 14:32, a different label than the stale 1200.
+        resets = int(__import__("datetime").datetime.now().replace(
+            hour=14, minute=30, second=0, microsecond=0).timestamp())
+        code, log = self.run_ping("14:02", usage=self._no_new_usage(resets),
+                                  extra_env=env)
+        self.assertEqual(code, 0)
+        # New label scheduled; the stale different-label job reaped.
+        self.assertTrue((backup_dir / "com.claude-session-ping.backup-1432.plist").exists())
+        self.assertFalse(old.exists())
+        # Ordering: load of the new label precedes unload of the old one.
+        lines = calls.read_text().splitlines()
+        load_new = next(i for i, l in enumerate(lines)
+                        if l.startswith("load") and "1432" in l)
+        unload_old = next(i for i, l in enumerate(lines)
+                          if l.startswith("unload") and "1200" in l)
+        self.assertLess(load_new, unload_old)
+
 
 if __name__ == "__main__":
     unittest.main()
