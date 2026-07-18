@@ -1,13 +1,21 @@
+# OS / editor
 .DS_Store
 .vscode/
-*.log
 *.swp
 *~
+
+# Secrets / local config
 .env
-.claude-session-ping.env
+
+# Runtime state written by the scripts
 .claude-session-ping/
 logs/
-.superpowers/
-/docs
+*.log
+
+# Python
 __pycache__/
 *.py[cod]
+
+# Project-local scratch
+.super*/
+/docs
