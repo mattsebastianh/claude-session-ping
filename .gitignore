@@ -19,3 +19,6 @@ __pycache__/
 # Project-local scratch
 .super*/
 /docs
+
+# graphify knowledge-graph outputs
+graphify*
