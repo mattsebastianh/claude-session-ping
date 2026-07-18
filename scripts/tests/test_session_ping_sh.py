@@ -130,6 +130,31 @@ class TestStateGuard(PingScriptCase):
         self.assertIn("sent successfully", log)
 
 
+class TestStateRecordsResets(PingScriptCase):
+    def test_real_window_success_records_resets_at(self):
+        # The next run's usage lookup compares the reported window start
+        # against this recorded reset to tell a fresh window from the one it
+        # already knew about.
+        resets = 1784383200
+        usage = (
+            "USAGE_OK=1\n"
+            "SESSION_PCT=0\n"
+            f"SESSION_RESETS_AT={resets}\n"
+            f"WINDOW_START={resets - 18000}\n"
+            "WINDOW_IS_NEW=1"
+        )
+        self.run_ping("09:02", usage=usage)
+        self.assertIn(f'"resets_at": {resets}', self.state_file.read_text())
+
+    def test_fallback_success_omits_resets_at(self):
+        # Usage lookup unavailable: the window end is only an estimate, so it
+        # must not be recorded as a real reset.
+        self.run_ping("09:02", usage="USAGE_OK=0")
+        state = self.state_file.read_text()
+        self.assertIn('"status": "success"', state)
+        self.assertNotIn("resets_at", state)
+
+
 class TestWindowLabel(PingScriptCase):
     def test_late_run_records_the_target_not_the_wake_time(self):
         # State must say the 09:02 window, not "09:07".
@@ -151,11 +176,21 @@ class TestBackupMode(PingScriptCase):
         self.assertIn("skip", log)
         self.assertNotIn("sent successfully", log)
 
-    def _backup_env(self):
-        """launchctl stub that appends its argv to a log; isolated backup dir."""
+    def _backup_env(self, kill_on=None):
+        """launchctl stub that appends its argv to a log; isolated backup dir.
+
+        `kill_on`: SIGTERM the calling script when the stub's job argument
+        matches — simulating launchctl unload/remove of the very job the
+        running backup instance was started from.
+        """
         stub = Path(self.tmp.name) / "launchctl_stub.sh"
         calls = Path(self.tmp.name) / "launchctl_calls.txt"
-        stub.write_text("#!/usr/bin/env zsh\nprint \"$@\" >> '%s'\n" % calls)
+        kill_clause = (
+            'if [[ "$2" == *%s* ]]; then kill $PPID; fi\n' % kill_on if kill_on else ""
+        )
+        stub.write_text(
+            "#!/usr/bin/env zsh\nprint \"$@\" >> '%s'\n%s" % (calls, kill_clause)
+        )
         stub.chmod(0o755)
         backup_dir = Path(self.tmp.name) / "agents"
         backup_dir.mkdir()
@@ -207,7 +242,35 @@ class TestBackupMode(PingScriptCase):
                                   extra_env=env)
         self.assertEqual(code, 0)
         self.assertFalse(stale.exists())
-        self.assertIn("unload", calls.read_text())
+        # Reaped by label, not plist path: the file is already deleted when
+        # the job is removed, and label removal works without it.
+        self.assertIn("remove com.claude-session-ping.backup-1432",
+                      calls.read_text())
+
+    def test_backup_instance_cleanup_survives_its_own_sigterm(self):
+        # launchctl remove/unload of the job a backup instance was started
+        # from SIGTERMs that instance mid-run (Jul 17 19:31: the backup run
+        # killed itself before rm/echo, leaving a stale plist that produced
+        # "Unload failed: 5: Input/output error" at the next run). Plist
+        # removal and the log line must complete before the self-kill, and
+        # other stale jobs must be reaped before the instance's own.
+        env, calls, backup_dir = self._backup_env(kill_on="backup-1437")
+        own = backup_dir / "com.claude-session-ping.backup-1437.plist"
+        own.write_text("<plist/>")
+        other = backup_dir / "com.claude-session-ping.backup-1200.plist"
+        other.write_text("<plist/>")
+        start = int(__import__("datetime").datetime.now().replace(
+            hour=14, minute=37, second=0, microsecond=0).timestamp())
+        code, log = self.run_ping("14:37", usage=self._new_usage(start),
+                                  backup_label="14:37", extra_env=env)
+        self.assertFalse(own.exists())
+        self.assertFalse(other.exists())
+        self.assertIn("cleared backup com.claude-session-ping.backup-1437", log)
+        self.assertIn("cleared backup com.claude-session-ping.backup-1200", log)
+        lines = calls.read_text().splitlines()
+        own_reap = next(i for i, l in enumerate(lines) if "1437" in l)
+        other_reap = next(i for i, l in enumerate(lines) if "1200" in l)
+        self.assertLess(other_reap, own_reap)
 
     def test_backup_suppressed_after_cutoff(self):
         env, calls, backup_dir = self._backup_env()
@@ -236,13 +299,13 @@ class TestBackupMode(PingScriptCase):
         # New label scheduled; the stale different-label job reaped.
         self.assertTrue((backup_dir / "com.claude-session-ping.backup-1432.plist").exists())
         self.assertFalse(old.exists())
-        # Ordering: load of the new label precedes unload of the old one.
+        # Ordering: load of the new label precedes removal of the old one.
         lines = calls.read_text().splitlines()
         load_new = next(i for i, l in enumerate(lines)
                         if l.startswith("load") and "1432" in l)
-        unload_old = next(i for i, l in enumerate(lines)
-                          if l.startswith("unload") and "1200" in l)
-        self.assertLess(load_new, unload_old)
+        remove_old = next(i for i, l in enumerate(lines)
+                          if l.startswith("remove") and "1200" in l)
+        self.assertLess(load_new, remove_old)
 
 
 if __name__ == "__main__":

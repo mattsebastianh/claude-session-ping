@@ -99,9 +99,17 @@ fi
 write_state() {
   local ping_status="$1"
   local real_start="${2:-}"
+  local resets_at="${3:-}"
   local start_epoch="${real_start:-$(date '+%s')}"
+  # Only a real (usage-confirmed) reset is recorded: the next run's usage
+  # lookup compares the reported window start against it to tell a fresh
+  # window from the one this run already saw.
+  local resets_field=""
+  if [[ -n "$resets_at" ]]; then
+    resets_field="\"resets_at\": ${resets_at}, "
+  fi
   cat >"$STATE_FILE" <<JSON
-{"window_start": ${start_epoch}, "window_label": "${WINDOW_LABEL}", "status": "${ping_status}", "updated_at": $(date '+%s')}
+{"window_start": ${start_epoch}, ${resets_field}"window_label": "${WINDOW_LABEL}", "status": "${ping_status}", "updated_at": $(date '+%s')}
 JSON
 }
 
@@ -109,17 +117,48 @@ backup_plist_path() {
   print "$BACKUP_DIR/com.claude-session-ping.backup-${1}.plist"
 }
 
-# Unload and remove every pending backup plist. Globs so a fresh window reaps
-# whatever is scheduled without knowing its label.
+# The job this instance was started from, when running as a backup ping.
+# launchctl removal of that job SIGTERMs this very process, so cleanup must
+# reap it last, after files and log lines are already settled.
+OWN_BACKUP_JOB=""
+if [[ -n "$BACKUP_LABEL" ]]; then
+  OWN_BACKUP_JOB="com.claude-session-ping.backup-${BACKUP_LABEL//:/}"
+fi
+
+# Remove backup jobs from launchd by label — the plists are already deleted
+# by the callers, and label removal needs no file. The instance's own job
+# goes last: removing it ends this script (see OWN_BACKUP_JOB above); on
+# 2026-07-17 19:31 an unload-first cleanup killed the backup instance before
+# rm/echo ran, leaving a stale plist and a lost log line.
+reap_backup_jobs() {
+  local label reap_own=""
+  for label in "$@"; do
+    if [[ "$label" == "$OWN_BACKUP_JOB" ]]; then
+      reap_own="$label"
+      continue
+    fi
+    "$LAUNCHCTL" remove "$label" 2>>"$LOG_FILE" || true
+  done
+  if [[ -n "$reap_own" ]]; then
+    "$LAUNCHCTL" remove "$reap_own" 2>>"$LOG_FILE" || true
+  fi
+}
+
+# Delete and unschedule every pending backup plist. Globs so a fresh window
+# reaps whatever is scheduled without knowing its label.
 clear_backup() {
   setopt local_options null_glob
   local plist label
+  local -a labels
   for plist in "$BACKUP_DIR"/com.claude-session-ping.backup-*.plist; do
     label="${${plist:t}%.plist}"
-    "$LAUNCHCTL" unload "$plist" 2>>"$LOG_FILE" || true
     rm -f "$plist"
     echo "[$(date '+%Y-%m-%d %H:%M:%S')] cleared backup $label" >>"$LOG_FILE"
+    labels+=("$label")
   done
+  if (( ${#labels} )); then
+    reap_backup_jobs "${labels[@]}"
+  fi
 }
 
 # Schedule a one-shot backup ping for when the current window ends. $1 is the
@@ -139,7 +178,7 @@ schedule_backup() {
     esac
   done
   if [[ "$BACKUP_OK" != "1" ]]; then
-    echo "[$(date '+%Y-%m-%d %H:%M:%S')] no backup scheduled (outside ${BACKUP_CUTOFF} cutoff)" >>"$LOG_FILE"
+    echo "[$(date '+%Y-%m-%d %H:%M:%S')] no backup scheduled (a target covers reopening, or outside ${BACKUP_CUTOFF} cutoff)" >>"$LOG_FILE"
     clear_backup
     return 0
   fi
@@ -183,19 +222,25 @@ schedule_backup() {
 PLIST
   chmod 644 "$new_plist"
 
-  # Load the new label FIRST, then clear the others. launchctl unload SIGTERMs
-  # the running (backup) process, so the replacement must already be loaded.
+  # Load the new label FIRST, then reap the others. Removing this instance's
+  # own job SIGTERMs it (see OWN_BACKUP_JOB), so the replacement must already
+  # be loaded and the stale files gone before the reap.
   "$LAUNCHCTL" unload "$new_plist" 2>/dev/null || true
   "$LAUNCHCTL" load "$new_plist" 2>>"$LOG_FILE" || true
   echo "[$(date '+%Y-%m-%d %H:%M:%S')] scheduled backup at ${BACKUP_HHMM}" >>"$LOG_FILE"
 
   setopt local_options null_glob
-  local plist
+  local plist stale_label
+  local -a stale
   for plist in "$BACKUP_DIR"/com.claude-session-ping.backup-*.plist; do
     [[ "$plist" == "$new_plist" ]] && continue
-    "$LAUNCHCTL" unload "$plist" 2>>"$LOG_FILE" || true
+    stale_label="${${plist:t}%.plist}"
     rm -f "$plist"
+    stale+=("$stale_label")
   done
+  if (( ${#stale} )); then
+    reap_backup_jobs "${stale[@]}"
+  fi
 }
 
 notify_telegram() {
@@ -306,7 +351,7 @@ while true; do
     echo "[$(date '+%Y-%m-%d %H:%M:%S')] sent successfully (attempt $attempt)" >>"$LOG_FILE"
     load_usage
     if [[ "${USAGE_OK:-0}" == "1" ]]; then
-      write_state "success" "$WINDOW_START"
+      write_state "success" "$WINDOW_START" "$SESSION_RESETS_AT"
       echo "[$(date '+%Y-%m-%d %H:%M:%S')] real window $(hhmm "$WINDOW_START")-$(hhmm "$SESSION_RESETS_AT") (new=${WINDOW_IS_NEW})" >>"$LOG_FILE"
     else
       write_state "success"

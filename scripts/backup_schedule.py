@@ -11,6 +11,8 @@ from __future__ import annotations
 import datetime
 import sys
 
+from telegram_qa_lib import TARGETS
+
 FIRST_TARGET = "04:02"
 
 
@@ -19,11 +21,29 @@ def _minutes_of_day(hhmm: str) -> int:
     return hour * 60 + minute
 
 
+def _target_covers_reopening(resets_at: int, fire_epoch: int, targets: list[str]) -> bool:
+    """A scheduled target firing in [window end, backup fire] opens the fresh
+    window itself, making the backup a duplicate. 2026-07-18: window
+    04:00-09:00 produced a backup at 09:00+120s = 09:02 — the exact second of
+    the scheduled 09:02 target — and both fired, double-pinging and sending
+    contradictory notifications."""
+    fire_dt = datetime.datetime.fromtimestamp(fire_epoch)
+    for target in targets:
+        hour, minute = (int(x) for x in target.split(":"))
+        target_epoch = int(
+            fire_dt.replace(hour=hour, minute=minute, second=0, microsecond=0).timestamp()
+        )
+        if resets_at <= target_epoch <= fire_epoch:
+            return True
+    return False
+
+
 def compute_backup(
     resets_at: int,
     buffer: int,
     cutoff: str,
     first_target: str = FIRST_TARGET,
+    targets: list[str] = TARGETS,
 ) -> dict | None:
     """Fire-time for a backup at resets_at+buffer, or None if outside the window.
 
@@ -40,6 +60,8 @@ def compute_backup(
     dt = datetime.datetime.fromtimestamp(fire_epoch)
     minutes = dt.hour * 60 + dt.minute
     if not (_minutes_of_day(first_target) <= minutes <= _minutes_of_day(cutoff)):
+        return None
+    if _target_covers_reopening(resets_at, fire_epoch, targets):
         return None
     return {
         "fire_epoch": fire_epoch,

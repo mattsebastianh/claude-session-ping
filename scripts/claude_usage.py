@@ -17,13 +17,22 @@ import time
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from usage_lib import (  # noqa: E402
-    NEW_WINDOW_TOLERANCE_SECONDS,
     WEEKLY_WARN_PERCENT,
     derive_window_start,
     parse_usage_output,
+    window_is_new,
 )
 
 DEFAULT_TIMEOUT_SECONDS = 30
+# Same default as scripts/claude_session_ping.sh and telegram_qa_daemon.py.
+STATE_FILE = os.environ.get(
+    "CLAUDE_SESSION_PING_STATE_FILE",
+    os.path.join(
+        os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+        ".claude-session-ping",
+        "state.json",
+    ),
+)
 
 
 def fetch_usage_text(timeout: int = DEFAULT_TIMEOUT_SECONDS) -> str | None:
@@ -54,13 +63,24 @@ def get_usage(now: int, timeout: int = DEFAULT_TIMEOUT_SECONDS) -> dict | None:
     return parse_usage_output(text, now)
 
 
-def shell_lines(usage: dict | None, now: int) -> list[str]:
+def read_prev_resets_at(path: str) -> int | None:
+    """The previous run's recorded window reset, or None when unknown."""
+    try:
+        with open(path) as fh:
+            state = json.load(fh)
+    except (OSError, ValueError):
+        return None
+    resets_at = state.get("resets_at")
+    return resets_at if isinstance(resets_at, int) else None
+
+
+def shell_lines(usage: dict | None, now: int, prev_resets_at: int | None = None) -> list[str]:
     """KEY=VALUE lines for the zsh ping script to consume."""
     if not usage or not usage.get("session"):
         return ["USAGE_OK=0"]
     session = usage["session"]
     window_start = derive_window_start(session["resets_at"])
-    is_new = abs(now - window_start) <= NEW_WINDOW_TOLERANCE_SECONDS
+    is_new = window_is_new(now, window_start, prev_resets_at)
     lines = [
         "USAGE_OK=1",
         f"SESSION_PCT={session['pct']:.0f}",
@@ -81,7 +101,10 @@ def main() -> int:
         usage = get_usage(now)
     except Exception:  # noqa: BLE001 - never break the caller's ping
         usage = None
-    for line in shell_lines(usage, now):
+    # Read the state BEFORE the ping script overwrites it: it still holds the
+    # previous window, against which newness is judged.
+    prev_resets_at = read_prev_resets_at(STATE_FILE)
+    for line in shell_lines(usage, now, prev_resets_at):
         print(line)
     return 0
 

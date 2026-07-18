@@ -7,6 +7,31 @@ and this project follows [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+- New-window detection no longer misreports a freshly opened window as
+  "No new window opened". The old check required the reported window start to
+  lie within 180s of the usage lookup, but Anthropic anchors the reported
+  start to a coarse boundary that can precede the opening ping by several
+  minutes (2026-07-18 04:04: a late post-wake ping produced a window reported
+  as 04:00-09:00, 290s away). A window now counts as new when it started
+  within the last 40 minutes (covering the 30-minute launchd grace plus
+  anchoring and lookup latency) and not before the previously recorded
+  window's end, which `state.json` now tracks in a `resets_at` field written
+  on usage-confirmed successes.
+- A backup ping is no longer scheduled when a regular target already covers
+  the reopening. Window 04:00-09:00 produced a backup at 09:00+120s = 09:02 —
+  the exact second of the scheduled 09:02 target — so both fired
+  simultaneously on 2026-07-18, double-pinging past the racy state guard and
+  sending contradictory Telegram messages ("No new window" and "window
+  opened" two seconds apart). The backup is suppressed whenever a scheduled
+  target falls between the window's end and the backup's fire time.
+- Backup cleanup now deletes plists and writes its log lines BEFORE asking
+  launchd to drop the jobs (by label, own job last): unloading the job a
+  backup instance was started from SIGTERMs that instance, which on
+  2026-07-17 19:31 killed cleanup midway — losing the log line and leaving a
+  stale plist that surfaced as "Unload failed: 5: Input/output error" on the
+  next run.
+
 ## [2.2.1] - 2026-07-17
 
 ### Changed

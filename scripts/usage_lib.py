@@ -12,7 +12,15 @@ import re
 from telegram_qa_lib import WINDOW_SECONDS
 
 WEEKLY_WARN_PERCENT = 80
-NEW_WINDOW_TOLERANCE_SECONDS = 180
+# Anthropic anchors the reported window start to a coarse boundary that can
+# precede the opening request by several minutes (a 04:04:49 ping produced a
+# window reported as 04:00-09:00), and launchd may fire a ping up to the
+# 30-minute grace window late after wake — so "new" must tolerate the sum of
+# both plus the usage lookup's own latency.
+MAX_NEW_WINDOW_AGE_SECONDS = 40 * 60
+# Displayed reset times round by up to a minute (a window ending 14:30 was
+# followed by one reported as starting 14:29).
+PREV_RESET_SLACK_SECONDS = 120
 
 # "Current session: 0% used · resets Jul 15 at 7:09pm (America/Guayaquil)"
 # Separator is U+00B7. Time may omit minutes ("12am").
@@ -76,3 +84,18 @@ def parse_usage_output(text: str, now: int) -> dict | None:
 def derive_window_start(resets_at: int) -> int:
     """The 5-hour window's start, derived from when it resets."""
     return resets_at - WINDOW_SECONDS
+
+
+def window_is_new(now: int, window_start: int, prev_resets_at: int | None = None) -> bool:
+    """Whether this run's ping (not earlier activity) opened the window.
+
+    A window opened by this run started recently — but never before the
+    previously recorded window's end, since session windows don't overlap.
+    Clock proximity alone misclassifies: start-time anchoring plus a late
+    launchd fire pushed a genuinely new window 290s from `now` on 2026-07-18.
+    """
+    if now - window_start > MAX_NEW_WINDOW_AGE_SECONDS:
+        return False
+    if prev_resets_at is not None and window_start < prev_resets_at - PREV_RESET_SLACK_SECONDS:
+        return False
+    return True

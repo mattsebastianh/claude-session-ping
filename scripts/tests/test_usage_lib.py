@@ -5,7 +5,7 @@ import unittest
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
-from usage_lib import derive_window_start, parse_usage_output
+from usage_lib import derive_window_start, parse_usage_output, window_is_new
 
 # Captured verbatim from `claude -p "/usage" --output-format json` on 2026-07-15.
 REAL_SAMPLE = (
@@ -71,6 +71,46 @@ class TestDeriveWindowStart(unittest.TestCase):
             derive_window_start(ts(2026, 7, 15, 19, 9)),
             ts(2026, 7, 15, 14, 9),
         )
+
+
+class TestWindowIsNew(unittest.TestCase):
+    def test_anchored_start_after_late_wake_is_new(self):
+        # Regression, 2026-07-18 04:04: launchd fired the 04:02 target at
+        # 04:04:29 after wake, the ping succeeded 04:04:49, and /usage
+        # reported the reset as 9:00am sharp — the window start was anchored
+        # to 04:00, ~5 minutes before the opening ping. The previous window
+        # had ended 00:31, so this window was genuinely new.
+        now = ts(2026, 7, 18, 4, 4) + 50
+        start = ts(2026, 7, 18, 4, 0)
+        self.assertTrue(window_is_new(now, start, prev_resets_at=ts(2026, 7, 18, 0, 31)))
+
+    def test_anchored_start_is_new_without_prior_state(self):
+        now = ts(2026, 7, 18, 4, 4) + 50
+        start = ts(2026, 7, 18, 4, 0)
+        self.assertTrue(window_is_new(now, start))
+
+    def test_rounded_reset_one_minute_before_prev_reset_is_new(self):
+        # Regression, 2026-07-18 09:02: two concurrent lookups a second apart
+        # got resets of 1:59pm and 2pm. The 1:59pm one derived start 08:59 —
+        # 60s before the recorded previous reset (09:00) and 213s from now —
+        # and was misreported as an existing window.
+        now = ts(2026, 7, 18, 9, 2) + 33
+        start = ts(2026, 7, 18, 8, 59)
+        self.assertTrue(window_is_new(now, start, prev_resets_at=ts(2026, 7, 18, 9, 0)))
+
+    def test_window_open_for_hours_is_not_new(self):
+        # 2026-07-17: the 09:02 target fired at 09:09 into the 04:30-09:30
+        # window opened by the 04:31 ping.
+        now = ts(2026, 7, 17, 9, 9)
+        start = ts(2026, 7, 17, 4, 30)
+        self.assertFalse(window_is_new(now, start, prev_resets_at=ts(2026, 7, 17, 4, 30)))
+
+    def test_start_predating_previous_reset_is_not_new(self):
+        # A recent-looking start well before the previously recorded window's
+        # end can only be the window we already knew about.
+        now = ts(2026, 7, 17, 14, 35)
+        start = ts(2026, 7, 17, 14, 10)
+        self.assertFalse(window_is_new(now, start, prev_resets_at=ts(2026, 7, 17, 14, 30)))
 
 
 if __name__ == "__main__":

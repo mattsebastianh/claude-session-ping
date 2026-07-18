@@ -40,10 +40,51 @@ class TestComputeBackup(unittest.TestCase):
         resets = epoch(2026, 7, 18, 0, 40)  # +120s -> 00:42, before 04:02
         self.assertIsNone(compute_backup(resets, 120, "23:02"))
 
-    def test_allowed_at_lower_bound(self):
-        resets = epoch(2026, 7, 17, 4, 0)  # +120s -> 04:02 == first target
+    def test_allowed_near_lower_bound_when_no_target_covers(self):
+        # Window ends 30s after the 04:02 target fired (absorbed into the old
+        # window), so the backup at 04:04 is the only reopening left.
+        resets = epoch(2026, 7, 17, 4, 2) + 30  # +120s -> 04:04:30
         result = compute_backup(resets, 120, "23:02")
-        self.assertEqual(result["hhmm"], "04:02")
+        self.assertEqual(result["hhmm"], "04:04")
+
+
+class TestTargetCollision(unittest.TestCase):
+    def test_suppressed_when_backup_lands_on_a_target(self):
+        # Regression, 2026-07-18: window 04:00-09:00 -> backup at 09:00+120s
+        # = 09:02, exactly the scheduled 09:02 target. Both fired in the same
+        # second, double-pinging and sending contradictory notifications.
+        resets = epoch(2026, 7, 18, 9, 0)
+        self.assertIsNone(compute_backup(resets, 120, "23:02"))
+
+    def test_suppressed_when_target_falls_between_end_and_fire(self):
+        # End 09:01, backup 09:03: the 09:02 target fires in between and
+        # opens the fresh window itself; the backup would only duplicate it.
+        resets = epoch(2026, 7, 18, 9, 1)
+        self.assertIsNone(compute_backup(resets, 120, "23:02"))
+
+    def test_suppressed_at_first_target_collision(self):
+        resets = epoch(2026, 7, 17, 4, 0)  # +120s -> 04:02 == 04:02 target
+        self.assertIsNone(compute_backup(resets, 120, "23:02"))
+
+    def test_allowed_when_target_fired_before_window_end(self):
+        # The 09:02 target fired 30s before the window ended -> absorbed;
+        # the backup is still needed.
+        resets = epoch(2026, 7, 18, 9, 2) + 30  # +120s -> 09:04:30
+        result = compute_backup(resets, 120, "23:02")
+        self.assertEqual(result["hhmm"], "09:04")
+
+    def test_allowed_when_window_ends_well_after_target(self):
+        resets = epoch(2026, 7, 18, 9, 25)  # +120s -> 09:27, next target 14:02
+        result = compute_backup(resets, 120, "23:02")
+        self.assertEqual(result["hhmm"], "09:27")
+
+    def test_cli_suppresses_target_collision(self):
+        resets = epoch(2026, 7, 18, 9, 0)
+        out = subprocess.run(
+            [sys.executable, str(HELPER), str(resets), "120", "23:02"],
+            capture_output=True, text=True, check=True,
+        ).stdout
+        self.assertIn("BACKUP_OK=0", out)
 
     def test_cli_prints_schedule_lines(self):
         resets = epoch(2026, 7, 17, 14, 30)

@@ -43,6 +43,13 @@ opens**; the notification says so explicitly instead of claiming success.
 Reading `/usage` costs no quota and doesn't itself open a window. If the
 lookup or parse fails, the script falls back to the scheduled assumption.
 
+Telling those two cases apart is not just clock proximity: Anthropic anchors
+the reported window start to a coarse boundary that can precede the opening
+ping by several minutes (a 04:04 ping can produce a window reported as
+04:00–09:00). A window counts as new when it started within the last 40
+minutes — covering the 30-minute post-wake grace plus that anchoring — and
+not before the previous window's recorded end (`resets_at` in `state.json`).
+
 Nothing here needs an IDE, terminal, or Claude Code session to stay open —
 once installed, `launchd` runs it independently as long as the Mac is on.
 
@@ -91,6 +98,12 @@ Backups are suppressed once the fire time would fall past
 `CLAUDE_SESSION_PING_BACKUP_CUTOFF` (default 23:02) local time — without that
 cutoff, a very late-running chain could push a backup into the early morning
 and collide with, or crowd out, the 04:02 target.
+
+They are also suppressed when a regular scheduled target falls between the
+window's end and the backup's fire time: that target reopens coverage by
+itself, and the backup would fire in the same instant (a window ending 09:00
+puts the backup at 09:02 — exactly the 09:02 target), double-pinging and
+sending contradictory notifications.
 
 ## Install
 
