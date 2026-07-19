@@ -5,7 +5,12 @@ TARGETS=(0402 0902 1402 1902)
 # launchd defers a missed StartCalendarInterval job until the machine wakes,
 # so a 09:02 job can fire at 09:07 with the Mac having slept through 09:02.
 # Accept a late run for that long, else the window is silently never opened.
-GRACE_MINUTES="${CLAUDE_SESSION_PING_GRACE_MINUTES:-30}"
+# 65 minutes, not 30: an idle Mac on AC cycles ~1-hour maintenance sleeps, so
+# a target missed by seconds is not retried for nearly a full hour. On
+# 2026-07-19 the machine slept at 08:59:11 and did not DarkWake until
+# 09:59:26, and a 30-minute grace dropped both the 04:02 and 09:02 windows.
+# The grace must span one whole sleep cycle plus wake latency.
+GRACE_MINUTES="${CLAUDE_SESSION_PING_GRACE_MINUTES:-65}"
 MAX_RETRIES="${CLAUDE_SESSION_PING_MAX_RETRIES:-4}"
 RETRY_DELAY_SECONDS="${CLAUDE_SESSION_PING_RETRY_DELAY:-300}"
 LIMIT_PATTERN='(usage limit|quota|blocked|rate limit|try again later)'

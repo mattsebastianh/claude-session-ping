@@ -74,10 +74,19 @@ class TestScheduleGuard(PingScriptCase):
         self.assertEqual(code, 0)
         self.assertIn("sent successfully", log)
 
+    def test_pings_when_darkwake_recovery_is_nearly_an_hour_late(self):
+        # 2026-07-19: an idle Mac on AC cycles ~1-hour maintenance sleeps, and
+        # it slept at 08:59:11 — 11s before the 09:02 target — then did not
+        # DarkWake until 09:59:26. Both that day's 04:02 and 09:02 windows were
+        # lost to a 30-minute grace. The grace must span a full sleep cycle.
+        code, log = self.run_ping("09:59")
+        self.assertEqual(code, 0)
+        self.assertIn("sent successfully", log)
+
     def test_skips_outside_the_grace_window(self):
-        # 45 min late: the window is well underway; a ping here would open a
-        # window at a time the schedule never intended.
-        code, log = self.run_ping("09:45")
+        # 73 min late: past a full maintenance-sleep cycle, so this is not a
+        # deferred target but a window the schedule never intended to open.
+        code, log = self.run_ping("10:15")
         self.assertEqual(code, 0)
         self.assertIn("skip", log)
         self.assertNotIn("sent successfully", log)
@@ -95,9 +104,12 @@ class TestScheduleGuard(PingScriptCase):
         self.assertNotIn("sent successfully", log)
 
     def test_grace_window_is_configurable(self):
-        code, log = self.run_ping("09:45", grace=60)
+        # Narrower than the default, so this proves the override is read
+        # rather than passing on the default's own behavior.
+        code, log = self.run_ping("09:45", grace=10)
         self.assertEqual(code, 0)
-        self.assertIn("sent successfully", log)
+        self.assertIn("skip", log)
+        self.assertNotIn("sent successfully", log)
 
 
 class TestStateGuard(PingScriptCase):
@@ -164,14 +176,15 @@ class TestWindowLabel(PingScriptCase):
 
 class TestBackupMode(PingScriptCase):
     def test_backup_label_pings_off_target_and_bypasses_matching(self):
-        # 14:37 matches no scheduled target; without backup mode this skips.
-        code, log = self.run_ping("14:37", backup_label="14:37")
+        # 15:30 falls outside every target's grace window; without backup mode
+        # this skips.
+        code, log = self.run_ping("15:30", backup_label="15:30")
         self.assertEqual(code, 0)
         self.assertIn("sent successfully", log)
-        self.assertIn('"window_label": "14:37"', self.state_file.read_text())
+        self.assertIn('"window_label": "15:30"', self.state_file.read_text())
 
     def test_off_target_without_backup_label_still_skips(self):
-        code, log = self.run_ping("14:37")
+        code, log = self.run_ping("15:30")
         self.assertEqual(code, 0)
         self.assertIn("skip", log)
         self.assertNotIn("sent successfully", log)

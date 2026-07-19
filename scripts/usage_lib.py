@@ -14,9 +14,10 @@ from telegram_qa_lib import WINDOW_SECONDS
 WEEKLY_WARN_PERCENT = 80
 # Anthropic anchors the reported window start to a coarse boundary that can
 # precede the opening request by several minutes (a 04:04:49 ping produced a
-# window reported as 04:00-09:00), and launchd may fire a ping up to the
-# 30-minute grace window late after wake — so "new" must tolerate the sum of
-# both plus the usage lookup's own latency.
+# window reported as 04:00-09:00), so "new" must tolerate that anchoring plus
+# the usage lookup's own latency. Deliberately NOT tied to the launchd grace
+# window: a window opens when the ping actually fires, so a late fire moves
+# window_start along with `now` and does not widen this gap.
 MAX_NEW_WINDOW_AGE_SECONDS = 40 * 60
 # Displayed reset times round by up to a minute (a window ending 14:30 was
 # followed by one reported as starting 14:29).

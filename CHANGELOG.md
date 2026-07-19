@@ -7,88 +7,61 @@ and this project follows [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [2.2.2] - 2026-07-19
+
+### Changed
+- Post-wake grace window (`CLAUDE_SESSION_PING_GRACE_MINUTES`) default raised
+  30 → **65 minutes** — an idle Mac's hourly maintenance-sleep cycle could
+  outlast the old grace and silently drop whole windows.
+
 ### Fixed
-- New-window detection no longer misreports a freshly opened window as
-  "No new window opened". The old check required the reported window start to
-  lie within 180s of the usage lookup, but Anthropic anchors the reported
-  start to a coarse boundary that can precede the opening ping by several
-  minutes (2026-07-18 04:04: a late post-wake ping produced a window reported
-  as 04:00-09:00, 290s away). A window now counts as new when it started
-  within the last 40 minutes (covering the 30-minute launchd grace plus
-  anchoring and lookup latency) and not before the previously recorded
-  window's end, which `state.json` now tracks in a `resets_at` field written
-  on usage-confirmed successes.
-- A backup ping is no longer scheduled when a regular target already covers
-  the reopening. Window 04:00-09:00 produced a backup at 09:00+120s = 09:02 —
-  the exact second of the scheduled 09:02 target — so both fired
-  simultaneously on 2026-07-18, double-pinging past the racy state guard and
-  sending contradictory Telegram messages ("No new window" and "window
-  opened" two seconds apart). The backup is suppressed whenever a scheduled
-  target falls between the window's end and the backup's fire time.
-- Backup cleanup now deletes plists and writes its log lines BEFORE asking
-  launchd to drop the jobs (by label, own job last): unloading the job a
-  backup instance was started from SIGTERMs that instance, which on
-  2026-07-17 19:31 killed cleanup midway — losing the log line and leaving a
-  stale plist that surfaced as "Unload failed: 5: Input/output error" on the
-  next run.
+- New-window detection no longer misreports a fresh window as "No new window
+  opened": new = started within the last 40 minutes and not before the
+  previous window's recorded end (`resets_at`, newly tracked in `state.json`).
+- No backup ping is scheduled when a regular target already covers the
+  reopening (both could fire at the same instant, double-pinging with
+  contradictory notifications).
+- Backup cleanup no longer SIGTERMs itself midway: files and log lines settle
+  before launchd drops the jobs, own job last.
 
 ## [2.2.1] - 2026-07-17
 
 ### Changed
-- `.gitignore` grouped into labeled sections (OS/editor, secrets, runtime
-  state, Python, project scratch) and the stale `.claude-session-ping.env`
-  entry dropped — the real env file is `.env`, and that name was never
-  referenced anywhere in the codebase.
+- `.gitignore` grouped into labeled sections; stale, never-referenced
+  `.claude-session-ping.env` entry dropped.
 
 ## [2.2.0] - 2026-07-17
 
 ### Added
-- Backup ping: when a scheduled ping finds an existing window still open, a
-  one-shot launchd job is scheduled to re-open coverage just after that window
-  ends (window end + `CLAUDE_SESSION_PING_BACKUP_BUFFER`, default 120s). It
-  re-chains until a fresh window opens and is suppressed past
-  `CLAUDE_SESSION_PING_BACKUP_CUTOFF` (default 23:02) to protect the 04:02 target.
+- Backup ping: when a scheduled ping lands in an already-open window, a
+  one-shot launchd job re-opens coverage just after that window ends
+  (`CLAUDE_SESSION_PING_BACKUP_BUFFER`, default 120s), re-chaining until a
+  fresh window opens; suppressed past `CLAUDE_SESSION_PING_BACKUP_CUTOFF`
+  (default 23:02).
 
 ### Fixed
-- Transient `getUpdates` read timeouts (the routine macOS DarkWake case — every
-  sleep freezes the long-poll socket and wakes to one timeout) are no longer
-  logged. They were already excluded from the outage alert, but each one still
-  wrote a log line: ~1-3/hour, 134 lines in one 2.5-day stretch, drowning out
-  genuine errors. Outage-worthy failures (DNS, network-unreachable) still log
-  and still count toward the alert.
+- Routine DarkWake read timeouts on `getUpdates` are no longer logged
+  (~1–3/hour of noise); genuine failures still log and count toward the
+  outage alert.
 
 ## [2.1.0] - 2026-07-16
 
 ### Changed
-- Schedule shifted two minutes later, to 04:02 / 09:02 / 14:02 / 19:02, so a
-  ping lands clear of the previous window's exact expiry rather than racing
-  it. Applies to the launch agent, the ping script, and the bot's schedule
-  answers.
+- Schedule shifted two minutes later (04:02 / 09:02 / 14:02 / 19:02) so pings
+  land clear of the previous window's exact expiry.
 
 ## [2.0.1] - 2026-07-16
 
-Sleep resilience: on a Mac that sleeps, windows were silently missed, the
-bot answered from the schedule instead of live usage, and the poll alert
-cried wolf.
+Sleep resilience.
 
 ### Fixed
-- Keepalive windows are no longer silently missed when the Mac is asleep at
-  a target time. launchd defers a missed `StartCalendarInterval` job until
-  the machine wakes, so a 09:00 job fired at 09:07 and the exact-time guard
-  skipped it — the window never opened. A run is now accepted up to
-  `CLAUDE_SESSION_PING_GRACE_MINUTES` (default 30) after a target, guarded
-  by state so a second late fire can't double-ping one window.
-- The Telegram daemon can find `claude` again: its launch agent had no
-  `EnvironmentVariables` block, so launchd gave it a default `PATH` without
-  `~/.local/bin`. Every `/usage` lookup failed silently and the bot answered
-  from the schedule instead of the real window (reporting a 09:00–14:00
-  window when the real one was 09:59–14:59). The v2.0.0 `PATH` fix had
-  reached the ping agent only.
-- Long-poll read timeouts no longer trigger the "polling has failed" alert.
-  Each macOS DarkWake kills the pending `getUpdates` socket, and with the
-  Mac sleeping straight back no successful poll reset the counter — 92
-  timeouts produced 12 false alarms in a single night. Timeouts are now
-  logged but treated as transient; genuine errors still alert.
+- Windows are no longer silently missed when the Mac sleeps through a target:
+  a run is accepted up to `CLAUDE_SESSION_PING_GRACE_MINUTES` late, with
+  state preventing a double-ping.
+- The Telegram daemon's launch agent now sets `PATH`, so it can find `claude`
+  and report the real window instead of the schedule estimate.
+- Long-poll read timeouts (one per DarkWake) no longer trigger the "polling
+  has failed" alert; genuine errors still do.
 
 ## [2.0.0] - 2026-07-16
 
@@ -96,70 +69,32 @@ Telegram notifier + Q&A bot, plus real usage-window reporting, built on top
 of the v1.0.0 keepalive core.
 
 ### Added
-- The Q&A bot answers usage questions ("what's my usage?", "weekly
-  limit?") with live data from `claude -p "/usage"` — percent used and
-  reset time for both the session window and the weekly limit — instead
-  of reporting window time elapsed as if it were usage. Falls back to a
-  clearly-labeled schedule estimate when the lookup fails.
-- Free-form (OpenAI-answered) questions include live usage as context.
-- Real usage-window reporting: notifications now show the true window start
-  and end, parsed from `claude -p "/usage"`, instead of assuming the window
-  equals the scheduled time plus five hours. The two drift apart in practice
-  — a 14:00 ping can land in a window that really runs 14:09–19:09.
-- Notifications distinguish "this ping opened a new window" from "the ping
-  landed inside a window that was already open", which previously reported
-  success and invented a window end five hours from the ping.
-- Weekly limit warning appended to notifications at >= 80% used.
-- Usage link (`https://claude.ai/new#settings/usage`) on scheduled
-  notifications.
-- `scripts/usage_lib.py` (pure parser) and `scripts/claude_usage.py` (IO
-  wrapper), with unit tests covering the observed output variants. Reading
-  `/usage` makes no API call, so it neither consumes quota nor opens a
-  window.
-- The Q&A bot answers window questions from the real window when available,
-  falling back to the state file and then the schedule.
-- `CLAUDE_SESSION_PING_MAX_RETRIES` and `CLAUDE_SESSION_PING_RETRY_DELAY`
-  env overrides, so the retry path is testable without waiting 25 minutes.
-- Telegram notifications on every keepalive attempt's outcome (window opened,
-  or all retries exhausted).
-- Telegram Q&A daemon (`scripts/telegram_qa_daemon.py`) that answers schedule
-  questions locally from a shared state file — usage %, window open/end time,
-  next/next-next session start — with an OpenAI fallback for anything else.
-- `window_open` Q&A intent ("when did this window open?").
-- Answers infer the active window from the fixed schedule when the state
-  file is missing or stale, instead of only trusting the last-written state.
-- Own launchd job (`com.claude-session-ping.telegram-bot`) installed by
-  `install.sh` when `TELEGRAM_BOT_TOKEN` and `TELEGRAM_CHAT_ID` are set.
-- `.env.example` documents the Telegram/OpenAI env vars.
-- Design spec and implementation plan for the notifier/Q&A bot under `docs/`.
-- `scripts/mock_session_ping.sh` to run a deterministic mock keepalive ping and
-  verify log output lands in the project log folder.
+- Telegram notifications on every keepalive outcome, distinguishing "opened a
+  new window" from "landed in an already-open window", with the true window
+  start/end parsed from `claude -p "/usage"` (free: no quota, opens no
+  window), a weekly-limit warning at ≥ 80%, and a usage link.
+- Telegram Q&A daemon (`scripts/telegram_qa_daemon.py`): answers usage and
+  schedule questions locally from live usage/state/schedule, with an OpenAI
+  fallback (live usage included as context) for anything else. Installed as
+  its own launchd job by `install.sh` when `TELEGRAM_BOT_TOKEN` +
+  `TELEGRAM_CHAT_ID` are set.
+- `scripts/usage_lib.py` (pure parser) + `scripts/claude_usage.py` (IO
+  wrapper) with unit tests; `scripts/mock_session_ping.sh` for deterministic
+  mock runs; `CLAUDE_SESSION_PING_MAX_RETRIES` / `_RETRY_DELAY` overrides;
+  `.env.example`.
 
 ### Fixed
-- Telegram notifications no longer render a link preview card for the
-  usage URL.
-- `match_intent` no longer false-positives on substrings like "weekend" or
-  "recover" matching `window_end`-ish keywords.
-- Network errors from the OpenAI fallback no longer crash the poll loop.
-- `install.sh` requires a non-empty `TELEGRAM_CHAT_ID`, not just a token,
-  before installing the Telegram daemon.
-- `openai_answer` scans the Responses API output for the first message item
-  instead of assuming it's first, so reasoning items before it no longer
-  break answers.
-- `parse_env_text` supports `export KEY=value` lines and unquoted inline
-  `# comments`, matching how the env file is actually sourced by zsh.
-- Both the scheduled ping and Telegram daemon now default their logs to the
-  project-local `logs/` directory instead of the home `~/Library/Logs` folder.
-- The project now defaults to a repo-local `.env` file for configuration,
-  while still honoring `CLAUDE_SESSION_PING_ENV_FILE` when explicitly set.
-- State file (`state.json`) also now defaults to the project-local
-  `.claude-session-ping/` directory instead of the home directory.
-- The launch agent now sets `PATH` and `USER`/`LOGNAME` explicitly (via new
-  `{{HOME_DIR}}`/`{{USER}}` template placeholders filled in by `install.sh`).
-  launchd's default job environment is minimal enough that `claude` couldn't
-  be found on `PATH` and, once found, reported "Not logged in" for lack of
-  `USER` — both caused every scheduled keepalive attempt to fail silently
-  until the next window.
+- Launch agent sets `PATH` and `USER`/`LOGNAME` explicitly — launchd's
+  minimal environment made every scheduled ping fail silently ("claude not
+  found", then "Not logged in").
+- Config, state, and logs all default to project-local paths (`.env`,
+  `.claude-session-ping/`, `logs/`) instead of the home directory.
+- Q&A robustness: intent matching no longer false-positives on substrings
+  ("weekend" ≠ window end); OpenAI errors can't crash the poll loop; the
+  Responses API parse tolerates leading reasoning items; `parse_env_text`
+  handles `export` lines and inline comments.
+- Notifications no longer render a link-preview card; `install.sh` requires
+  both `TELEGRAM_CHAT_ID` and the token before installing the daemon.
 
 ## [1.0.0] - 2026-07-13
 
@@ -167,15 +102,14 @@ Initial release: a `launchd`-based keepalive ping, no LLM required to decide
 *when* to fire.
 
 ### Added
-- `launchd/com.claude-session-ping.plist` launch agent template firing daily
-  at 04:00, 09:00, 14:00, and 19:00.
-- `scripts/claude_session_ping.sh`: checks the current time against the
-  schedule, sends the keepalive ping, and retries up to 4 times (5 attempts
-  total per window) on a usage-limit/blocked response.
-- `install.sh` to install the launch agent.
-- MIT license and initial README.
+- `launchd/com.claude-session-ping.plist` template firing daily at 04:00,
+  09:00, 14:00, and 19:00.
+- `scripts/claude_session_ping.sh`: schedule check, keepalive ping, up to 4
+  retries on a usage-limit/blocked response.
+- `install.sh`, MIT license, initial README.
 
-[Unreleased]: https://github.com/mattsebastianh/claude-session-ping/compare/v2.2.1...HEAD
+[Unreleased]: https://github.com/mattsebastianh/claude-session-ping/compare/v2.2.2...HEAD
+[2.2.2]: https://github.com/mattsebastianh/claude-session-ping/compare/v2.2.1...v2.2.2
 [2.2.1]: https://github.com/mattsebastianh/claude-session-ping/compare/v2.2.0...v2.2.1
 [2.2.0]: https://github.com/mattsebastianh/claude-session-ping/compare/v2.1.0...v2.2.0
 [2.1.0]: https://github.com/mattsebastianh/claude-session-ping/compare/v2.0.1...v2.1.0

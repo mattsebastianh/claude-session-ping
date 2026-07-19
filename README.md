@@ -25,7 +25,7 @@ decide *when* to fire, only plain system scheduling and shell code.
   `{{HOME_DIR}}`/`{{USER}}` placeholders that `install.sh` fills in.
 - **`scripts/claude_session_ping.sh`** — the script launchd runs. It:
   1. Checks the current time is at one of the four targets above, or up to
-     30 minutes after one (`CLAUDE_SESSION_PING_GRACE_MINUTES`) — see
+     65 minutes after one (`CLAUDE_SESSION_PING_GRACE_MINUTES`) — see
      [Sleep](#sleep) below.
   2. Sends a keepalive ping (defaults to `claude -p "..."`).
   3. If it detects a usage-limit/blocked response, retries up to **4 times**,
@@ -47,7 +47,7 @@ Telling those two cases apart is not just clock proximity: Anthropic anchors
 the reported window start to a coarse boundary that can precede the opening
 ping by several minutes (a 04:04 ping can produce a window reported as
 04:00–09:00). A window counts as new when it started within the last 40
-minutes — covering the 30-minute post-wake grace plus that anchoring — and
+minutes — covering that anchoring plus lookup latency — and
 not before the previous window's recorded end (`resets_at` in `state.json`).
 
 Nothing here needs an IDE, terminal, or Claude Code session to stay open —
@@ -57,19 +57,33 @@ once installed, `launchd` runs it independently as long as the Mac is on.
 
 launchd does not wake the Mac for a `StartCalendarInterval` job. If the
 machine is asleep at a target time, the job is deferred until the next wake
-— in practice a macOS DarkWake minutes later. The script therefore accepts a
-run up to 30 minutes late and still treats it as that target's window,
-recording the target's label rather than the wake time. State prevents a
-second late fire from pinging the same window twice, and a failed attempt is
-still retried.
+— a macOS DarkWake. The script therefore accepts a run up to 65 minutes late
+and still treats it as that target's window, recording the target's label
+rather than the wake time. State prevents a second late fire from pinging
+the same window twice, and a failed attempt is still retried.
+
+65 minutes is sized to a full sleep cycle, not to a typical wake delay. An
+idle Mac on AC cycles roughly hourly maintenance sleeps, so a target missed
+by seconds is not retried for nearly an hour: on 2026-07-19 the machine
+slept at 08:59:11 — 11 seconds before the 09:02 target — and did not
+DarkWake until 09:59:26. A 30-minute grace dropped that day's 04:02 and
+09:02 windows entirely.
 
 Past the grace window the run is skipped: the window has moved far enough
-from the schedule that opening one would be more surprising than useful. To
-keep windows exactly on time, wake the Mac just before each target:
+from the schedule that opening one would be more surprising than useful.
+
+A late run still opens a real window, just a late one, which shifts every
+downstream window (the [backup ping](#backup-ping) exists to absorb exactly
+that drift). To keep the first window of the day exactly on time, schedule a
+daily wake just before the 04:02 target:
 
 ```zsh
 sudo pmset repeat wake MTWRFSU 04:00:00
 ```
+
+Note that `pmset repeat` supports only **one** repeating wake event, so this
+covers 04:02 alone; the remaining three targets still rely on the grace
+window. Confirm it took with `pmset -g sched`.
 
 Sleep also breaks the Telegram bot's long poll — each DarkWake surfaces the
 dead socket as a read timeout. Those are silently retried and never alerted
