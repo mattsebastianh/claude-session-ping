@@ -75,15 +75,26 @@ from the schedule that opening one would be more surprising than useful.
 A late run still opens a real window, just a late one, which shifts every
 downstream window (the [backup ping](#backup-ping) exists to absorb exactly
 that drift). To keep the first window of the day exactly on time, schedule a
-daily wake just before the 04:02 target:
+daily wake at the **same minute** as the 04:02 target:
 
 ```zsh
-sudo pmset repeat wake MTWRFSU 04:00:00
+sudo pmset repeat wake MTWRFSU 04:02:00
 ```
+
+The wake must share the ping's minute, not lead it. `pmset repeat` has no
+sub-minute precision — it floors the seconds to `:00`, so `04:01:50` silently
+becomes `04:01:00` — and a lid-closed Mac on AC re-enters clamshell sleep only
+~45s after a scheduled wake. An earlier wake (e.g. `04:01:00`, or the previously
+documented `04:00:00`) therefore lingers awake for ~45s and is back asleep
+*before* the 04:02:00 launchd trigger, which then defers to the next DarkWake
+~30 min later. Waking at 04:02:00 lets launchd run the calendar job on that same
+wake, within the linger window. (Verified 2026-07-23/24/25: a `04:01` wake
+re-slept at 04:01:45 every morning and the 04:02 target slipped to 04:31.)
 
 Note that `pmset repeat` supports only **one** repeating wake event, so this
 covers 04:02 alone; the remaining three targets still rely on the grace
-window. Confirm it took with `pmset -g sched`.
+window. Confirm it took with `pmset -g sched` (which displays only `4:02AM`,
+without the seconds).
 
 Sleep also breaks the Telegram bot's long poll — each DarkWake surfaces the
 dead socket as a read timeout. Those are silently retried and never alerted
