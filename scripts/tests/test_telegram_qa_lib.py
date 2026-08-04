@@ -55,39 +55,41 @@ class TestWindowEnd(unittest.TestCase):
 
 class TestNextStartTimes(unittest.TestCase):
     def test_returns_next_two_in_order(self):
-        now = int(datetime.datetime(2026, 7, 13, 8, 0, 0).timestamp())
+        now = int(datetime.datetime(2026, 7, 13, 11, 0, 0).timestamp())
         starts = next_start_times(now)
         self.assertEqual(len(starts), 2)
-        self.assertEqual(format_time(starts[0]), "09:02")
-        self.assertEqual(format_time(starts[1]), "14:02")
+        self.assertEqual(format_time(starts[0]), "12:02")
+        self.assertEqual(format_time(starts[1]), "17:02")
 
     def test_rolls_over_to_next_day(self):
-        now = int(datetime.datetime(2026, 7, 13, 20, 0, 0).timestamp())
+        now = int(datetime.datetime(2026, 7, 13, 23, 0, 0).timestamp())
         starts = next_start_times(now)
-        self.assertEqual(format_time(starts[0]), "04:02")
-        self.assertEqual(format_time(starts[1]), "09:02")
+        self.assertEqual(format_time(starts[0]), "07:02")
+        self.assertEqual(format_time(starts[1]), "12:02")
 
 
 class TestCurrentWindowStart(unittest.TestCase):
     def test_inside_evening_window(self):
-        now = int(datetime.datetime(2026, 7, 13, 22, 7, 0).timestamp())
+        now = int(datetime.datetime(2026, 7, 13, 23, 7, 0).timestamp())
         start = current_window_start(now)
-        self.assertEqual(format_time(start), "19:02")
+        self.assertEqual(format_time(start), "22:02")
 
     def test_exactly_at_window_open(self):
-        now = int(datetime.datetime(2026, 7, 13, 9, 2, 0).timestamp())
+        now = int(datetime.datetime(2026, 7, 13, 12, 2, 0).timestamp())
         start = current_window_start(now)
-        self.assertEqual(format_time(start), "09:02")
+        self.assertEqual(format_time(start), "12:02")
 
     def test_in_gap_between_windows(self):
-        # Windows are back-to-back from 04:02 to 00:02; the only gap
-        # is 00:02-04:02 (the 19:02 window ends just after midnight).
-        now = int(datetime.datetime(2026, 7, 13, 2, 30, 0).timestamp())
+        # Windows are back-to-back from 07:02 to 03:02; the only gap
+        # is 03:02-07:02 (the 22:02 window ends just after 03:00).
+        now = int(datetime.datetime(2026, 7, 13, 5, 30, 0).timestamp())
         self.assertEqual(current_window_start(now), 0)
 
-    def test_just_after_midnight_window_closed(self):
+    def test_just_after_midnight_still_in_evening_window(self):
+        # The 22:02 window spans midnight, so yesterday's target owns 00:30.
         now = int(datetime.datetime(2026, 7, 13, 0, 30, 0).timestamp())
-        self.assertEqual(current_window_start(now), 0)
+        start = current_window_start(now)
+        self.assertEqual(format_time(start), "22:02")
 
 
 class TestHumanizeDelta(unittest.TestCase):

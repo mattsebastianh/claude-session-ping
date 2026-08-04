@@ -12,10 +12,10 @@ decide *when* to fire, only plain system scheduling and shell code.
 
 - **`launchd/com.claude-session-ping.plist`** — a launch agent template.
   macOS's own scheduler (`StartCalendarInterval`) fires it daily at:
-  - 04:02
-  - 09:02
-  - 14:02
-  - 19:02
+  - 07:02
+  - 12:02
+  - 17:02
+  - 22:02
 
   launchd runs jobs with a minimal environment (bare `PATH`, no `USER`/
   `LOGNAME`), which isn't enough to find the `claude` CLI or for it to look
@@ -37,7 +37,7 @@ decide *when* to fire, only plain system scheduling and shell code.
 
 The schedule is only an approximation of the real window, which is why step 5
 exists. A window starts when you first use Claude, not when the clock says
-04:02 — so a 14:02 ping can land in a window that really runs 14:09–19:09. If
+07:02 — so a 17:02 ping can land in a window that really runs 17:09–22:09. If
 a window is already open, the ping is absorbed into it and **no new window
 opens**; the notification says so explicitly instead of claiming success.
 Reading `/usage` costs no quota and doesn't itself open a window. If the
@@ -75,10 +75,10 @@ from the schedule that opening one would be more surprising than useful.
 A late run still opens a real window, just a late one, which shifts every
 downstream window (the [backup ping](#backup-ping) exists to absorb exactly
 that drift). To keep the first window of the day exactly on time, schedule a
-daily wake at the **same minute** as the 04:02 target:
+daily wake at the **same minute** as the 07:02 target:
 
 ```zsh
-sudo pmset repeat wake MTWRFSU 04:02:00
+sudo pmset repeat wake MTWRFSU 07:02:00
 ```
 
 The wake must share the ping's minute, not lead it. `pmset repeat` has no
@@ -86,13 +86,13 @@ sub-minute precision — it floors the seconds to `:00`, so `04:01:50` silently
 becomes `04:01:00` — and a lid-closed Mac on AC re-enters clamshell sleep only
 ~45s after a scheduled wake. An earlier wake (e.g. `04:01:00`, or the previously
 documented `04:00:00`) therefore lingers awake for ~45s and is back asleep
-*before* the 04:02:00 launchd trigger, which then defers to the next DarkWake
-~30 min later. Waking at 04:02:00 lets launchd run the calendar job on that same
+*before* the 07:02:00 launchd trigger, which then defers to the next DarkWake
+~30 min later. Waking at 07:02:00 lets launchd run the calendar job on that same
 wake, within the linger window. (Verified 2026-07-23/24/25: a `04:01` wake
 re-slept at 04:01:45 every morning and the 04:02 target slipped to 04:31.)
 
 Note that `pmset repeat` supports only **one** repeating wake event, so this
-covers 04:02 alone; the remaining three targets still rely on the grace
+covers 07:02 alone; the remaining three targets still rely on the grace
 window. Confirm it took with `pmset -g sched` (which displays only `4:02AM`,
 without the seconds).
 
@@ -103,7 +103,7 @@ on, since they say nothing about the bot's health; only genuine errors
 
 ### Backup ping
 
-The fixed 04:02/09:02/14:02/19:02 schedule is only ever an approximation —
+The fixed 07:02/12:02/17:02/22:02 schedule is only ever an approximation —
 real windows drift away from it (see [How it works](#how-it-works) above), so
 a later scheduled ping can land inside a window that's still open rather than
 opening a fresh one. When that happens, the ping is absorbed into the
@@ -120,9 +120,16 @@ backup fire installs its own one-shot launch agent, labeled
 `com.claude-session-ping.backup-HHMM.plist` in `~/Library/LaunchAgents`.
 
 Backups are suppressed once the fire time would fall past
-`CLAUDE_SESSION_PING_BACKUP_CUTOFF` (default 23:02) local time — without that
-cutoff, a very late-running chain could push a backup into the early morning
-and collide with, or crowd out, the 04:02 target.
+`CLAUDE_SESSION_PING_BACKUP_CUTOFF` (default 01:59) local time. The cutoff
+wraps past midnight, so the allowed fire window is 07:02–01:59 and **02:00
+through 07:01 is the overnight gap** — nothing is scheduled there. 01:59 is
+the last minute at which a backup's full 5-hour frame still closes (06:59)
+before the 07:02 target, so that ping opens the day for real instead of being
+absorbed. A backup at 02:02 would run to exactly 07:02 and swallow it.
+
+One consequence worth knowing: the 22:02 window ends at 03:02, inside the gap,
+so it is deliberately *not* re-opened — the overnight hours stay uncovered by
+design and the day restarts at 07:02.
 
 They are also suppressed when a regular scheduled target falls between the
 window's end and the backup's fire time: that target reopens coverage by
@@ -172,7 +179,7 @@ python3 -m unittest discover -s scripts/tests -t .
 Simulate a keepalive trigger without waiting for the real time:
 
 ```zsh
-CLAUDE_SESSION_PING_MOCK_TIME='09:02' ./scripts/claude_session_ping.sh
+CLAUDE_SESSION_PING_MOCK_TIME='12:02' ./scripts/claude_session_ping.sh
 ```
 
 Or use `scripts/mock_session_ping.sh`, which does the same but substitutes a
@@ -180,7 +187,7 @@ fake `echo` command for the real Claude ping and prints the resulting log
 from `logs/claude-session-ping.log`:
 
 ```zsh
-./scripts/mock_session_ping.sh 09:02
+./scripts/mock_session_ping.sh 12:02
 ```
 
 ## Uninstall

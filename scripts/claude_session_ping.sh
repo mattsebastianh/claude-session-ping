@@ -1,15 +1,16 @@
 #!/usr/bin/env zsh
 set -euo pipefail
 
-TARGETS=(0402 0902 1402 1902)
+TARGETS=(0702 1202 1702 2202)
 # launchd defers a missed StartCalendarInterval job until the machine wakes,
-# so a 09:02 job can fire at 09:07 with the Mac having slept through 09:02.
+# so a 12:02 job can fire at 12:07 with the Mac having slept through 12:02.
 # Accept a late run for that long, else the window is silently never opened.
 # 65 minutes, not 30: an idle Mac on AC cycles ~1-hour maintenance sleeps, so
 # a target missed by seconds is not retried for nearly a full hour. On
-# 2026-07-19 the machine slept at 08:59:11 and did not DarkWake until
-# 09:59:26, and a 30-minute grace dropped both the 04:02 and 09:02 windows.
-# The grace must span one whole sleep cycle plus wake latency.
+# 2026-07-19 (then on 04:02/09:02/14:02/19:02) the machine slept at 08:59:11
+# and did not DarkWake until 09:59:26, and a 30-minute grace dropped both the
+# 04:02 and 09:02 windows. The grace must span one whole sleep cycle plus
+# wake latency.
 GRACE_MINUTES="${CLAUDE_SESSION_PING_GRACE_MINUTES:-65}"
 MAX_RETRIES="${CLAUDE_SESSION_PING_MAX_RETRIES:-4}"
 RETRY_DELAY_SECONDS="${CLAUDE_SESSION_PING_RETRY_DELAY:-300}"
@@ -22,7 +23,10 @@ ENV_FILE="${CLAUDE_SESSION_PING_ENV_FILE:-$(cd "$(dirname "$0")/.." && pwd)/.env
 MOCK_TIME="${CLAUDE_SESSION_PING_MOCK_TIME:-}"
 BACKUP_LABEL="${CLAUDE_SESSION_PING_BACKUP_LABEL:-}"
 BACKUP_BUFFER="${CLAUDE_SESSION_PING_BACKUP_BUFFER:-120}"
-BACKUP_CUTOFF="${CLAUDE_SESSION_PING_BACKUP_CUTOFF:-23:02}"
+# Latest local time a backup may open a window: 01:59 + 5h = 06:59, so the
+# 07:02 target still opens the day instead of being absorbed. Wraps midnight —
+# 02:00 through 07:01 is the deliberate overnight gap.
+BACKUP_CUTOFF="${CLAUDE_SESSION_PING_BACKUP_CUTOFF:-01:59}"
 BACKUP_DIR="${CLAUDE_SESSION_PING_BACKUP_DIR:-$HOME/Library/LaunchAgents}"
 LAUNCHCTL="${CLAUDE_SESSION_PING_LAUNCHCTL:-launchctl}"
 SCRIPT_PATH="$(cd "$(dirname "$0")" && pwd)/$(basename "$0")"
@@ -167,7 +171,7 @@ clear_backup() {
 }
 
 # Schedule a one-shot backup ping for when the current window ends. $1 is the
-# window's reset epoch. Suppressed outside the [04:02, cutoff] fire window.
+# window's reset epoch. Suppressed outside the [first target, cutoff] fire window.
 schedule_backup() {
   local resets_at="$1"
   local out
@@ -183,7 +187,7 @@ schedule_backup() {
     esac
   done
   if [[ "$BACKUP_OK" != "1" ]]; then
-    echo "[$(date '+%Y-%m-%d %H:%M:%S')] no backup scheduled (a target covers reopening, or outside ${BACKUP_CUTOFF} cutoff)" >>"$LOG_FILE"
+    echo "[$(date '+%Y-%m-%d %H:%M:%S')] no backup scheduled (a target covers reopening, or the fire time falls in the overnight gap past the ${BACKUP_CUTOFF} cutoff)" >>"$LOG_FILE"
     clear_backup
     return 0
   fi

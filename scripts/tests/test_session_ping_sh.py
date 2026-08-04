@@ -62,43 +62,44 @@ class PingScriptCase(unittest.TestCase):
 
 class TestScheduleGuard(PingScriptCase):
     def test_pings_exactly_on_target(self):
-        code, log = self.run_ping("09:02")
+        code, log = self.run_ping("12:02")
         self.assertEqual(code, 0)
         self.assertIn("sent successfully", log)
 
     def test_pings_when_launchd_fires_late_after_wake(self):
-        # The real failure: Mac asleep at the target, DarkWake at 09:07:45,
-        # launchd ran the missed job at 09:07:46 -> "skip (current time 0907)"
-        # and the window never opened.
-        code, log = self.run_ping("09:07")
+        # The real failure (2026-07, on the then-09:02 target): Mac asleep at
+        # the target, DarkWake 5m45s later, launchd ran the missed job a second
+        # after that -> "skip (current time 1207)" and the window never opened.
+        code, log = self.run_ping("12:07")
         self.assertEqual(code, 0)
         self.assertIn("sent successfully", log)
 
     def test_pings_when_darkwake_recovery_is_nearly_an_hour_late(self):
-        # 2026-07-19: an idle Mac on AC cycles ~1-hour maintenance sleeps, and
-        # it slept at 08:59:11 — 11s before the 09:02 target — then did not
-        # DarkWake until 09:59:26. Both that day's 04:02 and 09:02 windows were
-        # lost to a 30-minute grace. The grace must span a full sleep cycle.
-        code, log = self.run_ping("09:59")
+        # 2026-07-19 (times as they were under the old 04/09/14/19 schedule):
+        # an idle Mac on AC cycles ~1-hour maintenance sleeps, and it slept at
+        # 08:59:11 — 11s before the 09:02 target — then did not DarkWake until
+        # 09:59:26. Both that day's 04:02 and 09:02 windows were lost to a
+        # 30-minute grace. The grace must span a full sleep cycle.
+        code, log = self.run_ping("12:59")
         self.assertEqual(code, 0)
         self.assertIn("sent successfully", log)
 
     def test_skips_outside_the_grace_window(self):
         # 73 min late: past a full maintenance-sleep cycle, so this is not a
         # deferred target but a window the schedule never intended to open.
-        code, log = self.run_ping("10:15")
+        code, log = self.run_ping("13:15")
         self.assertEqual(code, 0)
         self.assertIn("skip", log)
         self.assertNotIn("sent successfully", log)
 
     def test_skips_when_no_target_is_near(self):
-        code, log = self.run_ping("11:30")
+        code, log = self.run_ping("14:30")
         self.assertEqual(code, 0)
         self.assertIn("skip", log)
 
     def test_never_pings_before_a_target(self):
-        # 08:59 must not open the 09:02 window early.
-        code, log = self.run_ping("08:59")
+        # 11:59 must not open the 12:02 window early.
+        code, log = self.run_ping("11:59")
         self.assertEqual(code, 0)
         self.assertIn("skip", log)
         self.assertNotIn("sent successfully", log)
@@ -106,7 +107,7 @@ class TestScheduleGuard(PingScriptCase):
     def test_grace_window_is_configurable(self):
         # Narrower than the default, so this proves the override is read
         # rather than passing on the default's own behavior.
-        code, log = self.run_ping("09:45", grace=10)
+        code, log = self.run_ping("12:45", grace=10)
         self.assertEqual(code, 0)
         self.assertIn("skip", log)
         self.assertNotIn("sent successfully", log)
@@ -114,31 +115,31 @@ class TestScheduleGuard(PingScriptCase):
 
 class TestStateGuard(PingScriptCase):
     def test_second_run_in_same_grace_window_does_not_ping_twice(self):
-        code, log = self.run_ping("09:02")
+        code, log = self.run_ping("12:02")
         self.assertIn("sent successfully", log)
 
         # launchd can fire a missed job again after another wake.
-        code, log = self.run_ping("09:07")
+        code, log = self.run_ping("12:07")
         self.assertEqual(code, 0)
         self.assertIn("already pinged", log)
 
     def test_retries_a_window_whose_ping_failed(self):
         # A failed attempt must not block a later retry inside the grace window.
         self.state_file.write_text(
-            '{"window_start": 0, "window_label": "09:02", "status": "failed", "updated_at": %d}'
+            '{"window_start": 0, "window_label": "12:02", "status": "failed", "updated_at": %d}'
             % int(__import__("time").time())
         )
-        code, log = self.run_ping("09:07")
+        code, log = self.run_ping("12:07")
         self.assertIn("sent successfully", log)
 
     def test_stale_state_from_a_previous_day_does_not_block(self):
         # Same label, but yesterday's window: must still ping today.
         yesterday = int(__import__("time").time()) - 86400
         self.state_file.write_text(
-            '{"window_start": 0, "window_label": "09:02", "status": "success", "updated_at": %d}'
+            '{"window_start": 0, "window_label": "12:02", "status": "success", "updated_at": %d}'
             % yesterday
         )
-        code, log = self.run_ping("09:07")
+        code, log = self.run_ping("12:07")
         self.assertIn("sent successfully", log)
 
 
@@ -155,13 +156,13 @@ class TestStateRecordsResets(PingScriptCase):
             f"WINDOW_START={resets - 18000}\n"
             "WINDOW_IS_NEW=1"
         )
-        self.run_ping("09:02", usage=usage)
+        self.run_ping("12:02", usage=usage)
         self.assertIn(f'"resets_at": {resets}', self.state_file.read_text())
 
     def test_fallback_success_omits_resets_at(self):
         # Usage lookup unavailable: the window end is only an estimate, so it
         # must not be recorded as a real reset.
-        self.run_ping("09:02", usage="USAGE_OK=0")
+        self.run_ping("12:02", usage="USAGE_OK=0")
         state = self.state_file.read_text()
         self.assertIn('"status": "success"', state)
         self.assertNotIn("resets_at", state)
@@ -169,9 +170,9 @@ class TestStateRecordsResets(PingScriptCase):
 
 class TestWindowLabel(PingScriptCase):
     def test_late_run_records_the_target_not_the_wake_time(self):
-        # State must say the 09:02 window, not "09:07".
-        self.run_ping("09:07")
-        self.assertIn('"window_label": "09:02"', self.state_file.read_text())
+        # State must say the 09:02 window, not "12:07".
+        self.run_ping("12:07")
+        self.assertIn('"window_label": "12:02"', self.state_file.read_text())
 
 
 class TestBackupMode(PingScriptCase):
@@ -233,31 +234,31 @@ class TestBackupMode(PingScriptCase):
 
     def test_no_new_window_schedules_a_backup_plist(self):
         env, calls, backup_dir = self._backup_env()
-        # Deterministic window end at 14:30 today -> fire 14:32, inside cutoff.
+        # Deterministic window end at 17:30 today -> fire 17:32, inside cutoff.
         resets = int(__import__("datetime").datetime.now().replace(
-            hour=14, minute=30, second=0, microsecond=0).timestamp())
-        code, log = self.run_ping("14:02", usage=self._no_new_usage(resets),
+            hour=17, minute=30, second=0, microsecond=0).timestamp())
+        code, log = self.run_ping("17:02", usage=self._no_new_usage(resets),
                                   extra_env=env)
         self.assertEqual(code, 0)
         plists = list(backup_dir.glob("com.claude-session-ping.backup-*.plist"))
         self.assertEqual(len(plists), 1)
-        self.assertIn("backup-1432", plists[0].name)
+        self.assertIn("backup-1732", plists[0].name)
         self.assertIn("load", calls.read_text())
 
     def test_new_window_clears_backups(self):
         env, calls, backup_dir = self._backup_env()
         # Pre-seed a stale backup plist that a fresh window must reap.
-        stale = backup_dir / "com.claude-session-ping.backup-1432.plist"
+        stale = backup_dir / "com.claude-session-ping.backup-1732.plist"
         stale.write_text("<plist/>")
         start = int(__import__("datetime").datetime.now().replace(
-            hour=14, minute=2, second=0, microsecond=0).timestamp())
-        code, log = self.run_ping("14:02", usage=self._new_usage(start),
+            hour=17, minute=2, second=0, microsecond=0).timestamp())
+        code, log = self.run_ping("17:02", usage=self._new_usage(start),
                                   extra_env=env)
         self.assertEqual(code, 0)
         self.assertFalse(stale.exists())
         # Reaped by label, not plist path: the file is already deleted when
         # the job is removed, and label removal works without it.
-        self.assertIn("remove com.claude-session-ping.backup-1432",
+        self.assertIn("remove com.claude-session-ping.backup-1732",
                       calls.read_text())
 
     def test_backup_instance_cleanup_survives_its_own_sigterm(self):
@@ -288,36 +289,68 @@ class TestBackupMode(PingScriptCase):
     def test_backup_suppressed_after_cutoff(self):
         env, calls, backup_dir = self._backup_env()
         # Window ends 23:05 -> fire 23:07 > cutoff 23:02 -> no plist written.
+        # Cutoff passed explicitly so this tests the bound, not today's default.
+        env["CLAUDE_SESSION_PING_BACKUP_CUTOFF"] = "23:02"
         resets = int(__import__("datetime").datetime.now().replace(
             hour=23, minute=5, second=0, microsecond=0).timestamp())
-        code, log = self.run_ping("19:02", usage=self._no_new_usage(resets),
+        code, log = self.run_ping("22:02", usage=self._no_new_usage(resets),
                                   extra_env=env)
         self.assertEqual(code, 0)
         plists = list(backup_dir.glob("com.claude-session-ping.backup-*.plist"))
         self.assertEqual(len(plists), 0)
+
+    def _tomorrow_at(self, hour, minute):
+        dt = __import__("datetime")
+        return int((dt.datetime.now() + dt.timedelta(days=1)).replace(
+            hour=hour, minute=minute, second=0, microsecond=0).timestamp())
+
+    def test_backup_suppressed_when_reopening_lands_in_the_overnight_gap(self):
+        env, calls, backup_dir = self._backup_env()
+        # The 22:02 window ends 03:02 -> fire 03:04, inside the 02:00-07:01 gap
+        # the default cutoff carves out. Overnight coverage is intentionally not
+        # re-chained; the 07:02 target restarts the day with a clean window.
+        code, log = self.run_ping("22:02",
+                                  usage=self._no_new_usage(self._tomorrow_at(3, 2)),
+                                  extra_env=env)
+        self.assertEqual(code, 0)
+        plists = list(backup_dir.glob("com.claude-session-ping.backup-*.plist"))
+        self.assertEqual(len(plists), 0)
+        self.assertIn("no backup scheduled", log)
+
+    def test_backup_after_midnight_still_scheduled_under_wrapped_cutoff(self):
+        env, calls, backup_dir = self._backup_env()
+        # Window ends 00:40 -> fire 00:42: past midnight but before the 01:59
+        # cutoff, and its 5h frame closes at 05:42, clear of 07:02.
+        code, log = self.run_ping("22:02",
+                                  usage=self._no_new_usage(self._tomorrow_at(0, 40)),
+                                  extra_env=env)
+        self.assertEqual(code, 0)
+        plists = list(backup_dir.glob("com.claude-session-ping.backup-*.plist"))
+        self.assertEqual(len(plists), 1)
+        self.assertIn("backup-0042", plists[0].name)
 
     def test_reschedule_loads_new_label_before_unloading_old(self):
         # The core correctness property: launchctl unload SIGTERMs the running
         # backup process, so a re-chain must load the NEW (differently-labelled)
         # job before it unloads the OLD one — otherwise the chain dies mid-swap.
         env, calls, backup_dir = self._backup_env()
-        old = backup_dir / "com.claude-session-ping.backup-1200.plist"
+        old = backup_dir / "com.claude-session-ping.backup-1500.plist"
         old.write_text("<plist/>")
-        # Window ends 14:30 -> fire 14:32, a different label than the stale 1200.
+        # Window ends 17:30 -> fire 17:32, a different label than the stale 1500.
         resets = int(__import__("datetime").datetime.now().replace(
-            hour=14, minute=30, second=0, microsecond=0).timestamp())
-        code, log = self.run_ping("14:02", usage=self._no_new_usage(resets),
+            hour=17, minute=30, second=0, microsecond=0).timestamp())
+        code, log = self.run_ping("17:02", usage=self._no_new_usage(resets),
                                   extra_env=env)
         self.assertEqual(code, 0)
         # New label scheduled; the stale different-label job reaped.
-        self.assertTrue((backup_dir / "com.claude-session-ping.backup-1432.plist").exists())
+        self.assertTrue((backup_dir / "com.claude-session-ping.backup-1732.plist").exists())
         self.assertFalse(old.exists())
         # Ordering: load of the new label precedes removal of the old one.
         lines = calls.read_text().splitlines()
         load_new = next(i for i, l in enumerate(lines)
-                        if l.startswith("load") and "1432" in l)
+                        if l.startswith("load") and "1732" in l)
         remove_old = next(i for i, l in enumerate(lines)
-                          if l.startswith("remove") and "1200" in l)
+                          if l.startswith("remove") and "1500" in l)
         self.assertLess(load_new, remove_old)
 
 

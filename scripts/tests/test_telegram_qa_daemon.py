@@ -29,14 +29,14 @@ class NoRealUsageLookup(unittest.TestCase):
 
 class TestAnswerQuestion(NoRealUsageLookup):
     def test_usage_lookup_failed_falls_back_to_labeled_estimate(self):
-        # 22:07 — inside the 19:02 window (5h => ends 00:02), 62% elapsed.
-        now = int(datetime.datetime(2026, 7, 13, 22, 7, 0).timestamp())
+        # 20:07 — inside the 17:02 window (5h => ends 22:02), 62% elapsed.
+        now = int(datetime.datetime(2026, 7, 13, 20, 7, 0).timestamp())
         with patch.object(daemon, "load_state", return_value=EMPTY_STATE), patch("time.time", return_value=now):
             reply = daemon.answer_question({}, "what's my session usage")
         self.assertEqual(
             reply,
             "⚠️ Couldn't fetch live usage. Estimate from schedule:\n"
-            "📊 Session window ~62% elapsed — ends around 00:02",
+            "📊 Session window ~62% elapsed — ends around 22:02",
         )
 
     def test_usage_reports_live_data_when_available(self):
@@ -56,40 +56,40 @@ class TestAnswerQuestion(NoRealUsageLookup):
         )
 
     def test_usage_with_no_state_outside_any_window(self):
-        now = int(datetime.datetime(2026, 7, 13, 2, 30, 0).timestamp())
+        now = int(datetime.datetime(2026, 7, 13, 5, 30, 0).timestamp())
         with patch.object(daemon, "load_state", return_value=EMPTY_STATE), patch("time.time", return_value=now):
             reply = daemon.answer_question({}, "whats my usage")
-        self.assertEqual(reply, "No session window is active right now. Next one starts at 04:02.")
+        self.assertEqual(reply, "No session window is active right now. Next one starts at 07:02.")
 
     def test_window_end_with_no_state_infers_window_from_schedule(self):
-        now = int(datetime.datetime(2026, 7, 13, 22, 7, 0).timestamp())
+        now = int(datetime.datetime(2026, 7, 13, 20, 7, 0).timestamp())
         with patch.object(daemon, "load_state", return_value=EMPTY_STATE), patch("time.time", return_value=now):
             reply = daemon.answer_question({}, "when does this window end")
-        self.assertEqual(reply, "Current window ends around 00:02 (1h 55m left).")
+        self.assertEqual(reply, "Current window ends around 22:02 (1h 55m left).")
 
     def test_window_open_with_no_state_infers_from_schedule(self):
-        now = int(datetime.datetime(2026, 7, 13, 22, 7, 0).timestamp())
+        now = int(datetime.datetime(2026, 7, 13, 20, 7, 0).timestamp())
         with patch.object(daemon, "load_state", return_value=EMPTY_STATE), patch("time.time", return_value=now):
             reply = daemon.answer_question({}, "when this current window opened?")
-        self.assertEqual(reply, "Current window opened at 19:02 (3h 5m ago).")
+        self.assertEqual(reply, "Current window opened at 17:02 (3h 5m ago).")
 
     def test_window_open_outside_any_window(self):
-        now = int(datetime.datetime(2026, 7, 13, 2, 30, 0).timestamp())
+        now = int(datetime.datetime(2026, 7, 13, 5, 30, 0).timestamp())
         with patch.object(daemon, "load_state", return_value=EMPTY_STATE), patch("time.time", return_value=now):
             reply = daemon.answer_question({}, "when did this window open")
-        self.assertEqual(reply, "No session window is active right now. Next one starts at 04:02.")
+        self.assertEqual(reply, "No session window is active right now. Next one starts at 07:02.")
 
     def test_next_start_includes_countdown(self):
-        now = int(datetime.datetime(2026, 7, 13, 22, 7, 0).timestamp())
+        now = int(datetime.datetime(2026, 7, 13, 20, 7, 0).timestamp())
         with patch.object(daemon, "load_state", return_value=EMPTY_STATE), patch("time.time", return_value=now):
             reply = daemon.answer_question({}, "when is the next reset")
-        self.assertEqual(reply, "Next session window starts at 04:02 (in 5h 55m).")
+        self.assertEqual(reply, "Next session window starts at 22:02 (in 1h 55m).")
 
     def test_next_next_start_includes_countdown(self):
-        now = int(datetime.datetime(2026, 7, 13, 22, 7, 0).timestamp())
+        now = int(datetime.datetime(2026, 7, 13, 20, 7, 0).timestamp())
         with patch.object(daemon, "load_state", return_value=EMPTY_STATE), patch("time.time", return_value=now):
             reply = daemon.answer_question({}, "and the one after that?")
-        self.assertEqual(reply, "The session window after next starts at 09:02 (in 10h 55m).")
+        self.assertEqual(reply, "The session window after next starts at 07:02 (in 10h 55m).")
 
     def test_usage_lookup_failed_estimates_from_tracked_window(self):
         window_start = int(datetime.datetime(2026, 7, 13, 9, 0, 0).timestamp())
@@ -104,16 +104,16 @@ class TestAnswerQuestion(NoRealUsageLookup):
         )
 
     def test_usage_lookup_failed_stale_state_estimates_from_schedule(self):
-        # State says 09:00 but it's 22:07 — that window closed at 14:00.
+        # State says 09:00 but it's 20:07 — that window closed at 14:00.
         window_start = int(datetime.datetime(2026, 7, 13, 9, 0, 0).timestamp())
         state = {"window_start": window_start, "window_label": "09:00", "status": "success"}
-        now = int(datetime.datetime(2026, 7, 13, 22, 7, 0).timestamp())
+        now = int(datetime.datetime(2026, 7, 13, 20, 7, 0).timestamp())
         with patch.object(daemon, "load_state", return_value=state), patch("time.time", return_value=now):
             reply = daemon.answer_question({}, "whats my usage")
         self.assertEqual(
             reply,
             "⚠️ Couldn't fetch live usage. Estimate from schedule:\n"
-            "📊 Session window ~62% elapsed — ends around 00:02",
+            "📊 Session window ~62% elapsed — ends around 22:02",
         )
 
 
@@ -228,31 +228,31 @@ class TestFetchUsageAndWindow(unittest.TestCase):
         self.assertEqual(window_start, int(datetime.datetime(2026, 7, 15, 14, 9, 0).timestamp()))
 
     def test_falls_back_to_schedule_when_usage_unavailable(self):
-        now = int(datetime.datetime(2026, 7, 15, 22, 7, 0).timestamp())
+        now = int(datetime.datetime(2026, 7, 15, 20, 7, 0).timestamp())
         with patch.object(daemon, "get_usage", return_value=None), \
              patch.object(daemon, "load_state", return_value=EMPTY_STATE):
             got_usage, window_start = daemon.fetch_usage_and_window(now)
         self.assertIsNone(got_usage)
-        self.assertEqual(window_start, int(datetime.datetime(2026, 7, 15, 19, 2, 0).timestamp()))
+        self.assertEqual(window_start, int(datetime.datetime(2026, 7, 15, 17, 2, 0).timestamp()))
 
     def test_falls_back_to_schedule_when_usage_raises(self):
-        now = int(datetime.datetime(2026, 7, 15, 22, 7, 0).timestamp())
+        now = int(datetime.datetime(2026, 7, 15, 20, 7, 0).timestamp())
         with patch.object(daemon, "get_usage", side_effect=OSError("boom")), \
              patch.object(daemon, "load_state", return_value=EMPTY_STATE), \
              patch.object(daemon, "log"):
             got_usage, window_start = daemon.fetch_usage_and_window(now)
         self.assertIsNone(got_usage)
-        self.assertEqual(window_start, int(datetime.datetime(2026, 7, 15, 19, 2, 0).timestamp()))
+        self.assertEqual(window_start, int(datetime.datetime(2026, 7, 15, 17, 2, 0).timestamp()))
 
     def test_weekly_only_usage_keeps_schedule_window(self):
         # No session entry -> window start still comes from the schedule path.
-        now = int(datetime.datetime(2026, 7, 15, 22, 7, 0).timestamp())
+        now = int(datetime.datetime(2026, 7, 15, 20, 7, 0).timestamp())
         usage = {"session": None, "weekly": {"pct": 41.0, "resets_at": now + 86400}}
         with patch.object(daemon, "get_usage", return_value=usage), \
              patch.object(daemon, "load_state", return_value=EMPTY_STATE):
             got_usage, window_start = daemon.fetch_usage_and_window(now)
         self.assertEqual(got_usage, usage)
-        self.assertEqual(window_start, int(datetime.datetime(2026, 7, 15, 19, 2, 0).timestamp()))
+        self.assertEqual(window_start, int(datetime.datetime(2026, 7, 15, 17, 2, 0).timestamp()))
 
     def test_next_start_answers_without_usage_lookup(self):
         # Schedule-only answers must not pay for the CLI subprocess.

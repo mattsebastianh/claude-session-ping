@@ -7,6 +7,23 @@ and this project follows [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Changed
+- Daily ping schedule moved to **07:02 / 12:02 / 17:02 / 22:02** (was
+  04:02 / 09:02 / 14:02 / 19:02) — four 5-hour windows now start with the
+  waking day.
+- Backup-ping cutoff (`CLAUDE_SESSION_PING_BACKUP_CUTOFF`) default 23:02 →
+  **01:59**, and the fire window now **wraps past midnight**: 07:02–01:59 is
+  allowed, 02:00–07:01 is the overnight gap. 01:59 is the last minute whose
+  5-hour frame closes (06:59) before the 07:02 target, so the day's first ping
+  opens a real window instead of being absorbed into an overnight one. The
+  22:02 window's own reopening (03:04) therefore stays suppressed by design.
+- `pmset repeat wake` guidance in the README now targets 07:02:00.
+
+### Fixed
+- Backup-vs-target collision checks now also consider the previous calendar
+  day's targets — reachable now that a fire time can legitimately land after
+  midnight with a large `CLAUDE_SESSION_PING_BACKUP_BUFFER`.
+
 ## [2.2.2] - 2026-07-19
 
 ### Changed
