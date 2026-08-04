@@ -7,6 +7,8 @@ and this project follows [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [2.3.0] - 2026-08-04
+
 ### Changed
 - Daily ping schedule moved to **07:02 / 12:02 / 17:02 / 22:02** (was
   04:02 / 09:02 / 14:02 / 19:02) — four 5-hour windows now start with the
@@ -125,7 +127,8 @@ Initial release: a `launchd`-based keepalive ping, no LLM required to decide
   retries on a usage-limit/blocked response.
 - `install.sh`, MIT license, initial README.
 
-[Unreleased]: https://github.com/mattsebastianh/claude-session-ping/compare/v2.2.2...HEAD
+[Unreleased]: https://github.com/mattsebastianh/claude-session-ping/compare/v2.3.0...HEAD
+[2.3.0]: https://github.com/mattsebastianh/claude-session-ping/compare/v2.2.2...v2.3.0
 [2.2.2]: https://github.com/mattsebastianh/claude-session-ping/compare/v2.2.1...v2.2.2
 [2.2.1]: https://github.com/mattsebastianh/claude-session-ping/compare/v2.2.0...v2.2.1
 [2.2.0]: https://github.com/mattsebastianh/claude-session-ping/compare/v2.1.0...v2.2.0
