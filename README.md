@@ -93,7 +93,7 @@ re-slept at 04:01:45 every morning and the 04:02 target slipped to 04:31.)
 
 Note that `pmset repeat` supports only **one** repeating wake event, so this
 covers 07:02 alone; the remaining three targets still rely on the grace
-window. Confirm it took with `pmset -g sched` (which displays only `4:02AM`,
+window. Confirm it took with `pmset -g sched` (which displays only `7:02AM`,
 without the seconds).
 
 Sleep also breaks the Telegram bot's long poll — each DarkWake surfaces the
