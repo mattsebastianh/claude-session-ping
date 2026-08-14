@@ -7,6 +7,8 @@ and this project follows [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [2.3.1] - 2026-08-14
+
 ### Fixed
 - Usage lookups no longer fail when another process writes to `claude`'s
   stdout — the JSON result is now located line by line instead of decoding the
@@ -145,7 +147,8 @@ Initial release: a `launchd`-based keepalive ping, no LLM required to decide
   retries on a usage-limit/blocked response.
 - `install.sh`, MIT license, initial README.
 
-[Unreleased]: https://github.com/mattsebastianh/claude-session-ping/compare/v2.3.0...HEAD
+[Unreleased]: https://github.com/mattsebastianh/claude-session-ping/compare/v2.3.1...HEAD
+[2.3.1]: https://github.com/mattsebastianh/claude-session-ping/compare/v2.3.0...v2.3.1
 [2.3.0]: https://github.com/mattsebastianh/claude-session-ping/compare/v2.2.2...v2.3.0
 [2.2.2]: https://github.com/mattsebastianh/claude-session-ping/compare/v2.2.1...v2.2.2
 [2.2.1]: https://github.com/mattsebastianh/claude-session-ping/compare/v2.2.0...v2.2.1
