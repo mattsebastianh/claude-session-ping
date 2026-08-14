@@ -35,7 +35,13 @@ STATE_FILE = os.environ.get(
 )
 
 
-def fetch_usage_text(timeout: int = DEFAULT_TIMEOUT_SECONDS) -> str | None:
+def fetch_usage_text(timeout: int = DEFAULT_TIMEOUT_SECONDS) -> tuple[str | None, str]:
+    """The /usage prose, plus a short failure slug ("" when it succeeded).
+
+    The slug is the only diagnostic the caller gets: stderr is discarded by
+    the ping script, so a bare None left timeouts, crashes and parse failures
+    indistinguishable in the log.
+    """
     try:
         completed = subprocess.run(
             ["claude", "-p", "/usage", "--output-format", "json"],
@@ -44,23 +50,59 @@ def fetch_usage_text(timeout: int = DEFAULT_TIMEOUT_SECONDS) -> str | None:
             timeout=timeout,
             stdin=subprocess.DEVNULL,  # else claude stalls waiting on inherited stdin
         )
-    except (subprocess.TimeoutExpired, FileNotFoundError, OSError):
-        return None
+    except subprocess.TimeoutExpired:
+        return None, "timeout"
+    except FileNotFoundError:
+        return None, "not_found"
+    except OSError:
+        return None, "os_error"
     if completed.returncode != 0:
-        return None
-    try:
-        payload = json.loads(completed.stdout)
-    except (json.JSONDecodeError, ValueError):
-        return None
-    result = payload.get("result")
-    return result if isinstance(result, str) else None
+        return None, f"exit_{completed.returncode}"
+    return _result_from_stdout(completed.stdout)
+
+
+def _result_from_stdout(stdout: str) -> tuple[str | None, str]:
+    """Pull the result string out of stdout, tolerating non-JSON lines.
+
+    stdout is not ours alone: on 2026-08-14 an MCP server appended
+    "Client.listTools() called but server does not advertise tools
+    capability" *after* the JSON, so decoding the whole buffer raised
+    "Extra data" and 77 of 136 lookups silently fell back to the schedule.
+    --output-format json emits the payload on a single line, so scan lines
+    and take the first that decodes.
+    """
+    saw_payload = False
+    for line in stdout.splitlines():
+        line = line.strip()
+        if not line.startswith("{"):
+            continue
+        try:
+            payload = json.loads(line)
+        except (json.JSONDecodeError, ValueError):
+            continue
+        if not isinstance(payload, dict):
+            continue
+        saw_payload = True
+        result = payload.get("result")
+        if isinstance(result, str):
+            return result, ""
+    return None, "no_result" if saw_payload else "bad_json"
+
+
+def get_usage_with_reason(now: int, timeout: int = DEFAULT_TIMEOUT_SECONDS) -> tuple[dict | None, str]:
+    """Parsed usage, plus the slug explaining a None."""
+    text, reason = fetch_usage_text(timeout)
+    if not text:
+        return None, reason
+    usage = parse_usage_output(text, now)
+    if usage is None:
+        return None, "unparsed"
+    return usage, ""
 
 
 def get_usage(now: int, timeout: int = DEFAULT_TIMEOUT_SECONDS) -> dict | None:
-    text = fetch_usage_text(timeout)
-    if not text:
-        return None
-    return parse_usage_output(text, now)
+    """Parsed usage alone — the Telegram daemon's entry point."""
+    return get_usage_with_reason(now, timeout)[0]
 
 
 def read_prev_resets_at(path: str) -> int | None:
@@ -74,10 +116,14 @@ def read_prev_resets_at(path: str) -> int | None:
     return resets_at if isinstance(resets_at, int) else None
 
 
-def shell_lines(usage: dict | None, now: int, prev_resets_at: int | None = None) -> list[str]:
-    """KEY=VALUE lines for the zsh ping script to consume."""
+def shell_lines(usage: dict | None, now: int, prev_resets_at: int | None = None,
+                reason: str = "") -> list[str]:
+    """KEY=VALUE lines for the zsh ping script to consume.
+
+    `reason` is a bare slug (no spaces/quotes): the shell `eval`s these lines.
+    """
     if not usage or not usage.get("session"):
-        return ["USAGE_OK=0"]
+        return ["USAGE_OK=0"] + ([f"USAGE_ERROR={reason}"] if reason else [])
     session = usage["session"]
     window_start = derive_window_start(session["resets_at"])
     is_new = window_is_new(now, window_start, prev_resets_at)
@@ -98,13 +144,15 @@ def shell_lines(usage: dict | None, now: int, prev_resets_at: int | None = None)
 def main() -> int:
     now = int(time.time())
     try:
-        usage = get_usage(now)
+        usage, reason = get_usage_with_reason(now)
     except Exception:  # noqa: BLE001 - never break the caller's ping
-        usage = None
+        usage, reason = None, "crashed"
+    if usage and not usage.get("session"):
+        reason = "no_session"
     # Read the state BEFORE the ping script overwrites it: it still holds the
     # previous window, against which newness is judged.
     prev_resets_at = read_prev_resets_at(STATE_FILE)
-    for line in shell_lines(usage, now, prev_resets_at):
+    for line in shell_lines(usage, now, prev_resets_at, reason):
         print(line)
     return 0
 

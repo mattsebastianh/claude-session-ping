@@ -7,6 +7,24 @@ and this project follows [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+- Usage lookups no longer fail when another process writes to `claude`'s
+  stdout — the JSON result is now located line by line instead of decoding the
+  whole buffer, which an MCP server's stray output was breaking on roughly
+  half of all runs.
+- A ping whose window couldn't be verified is reported as unverified rather
+  than as a confirmed new window: the old message claimed "✅ Claude session
+  window opened at HH:MM" even when the ping had been absorbed by a window
+  already running.
+- A failed usage lookup no longer deletes the pending backup ping, which
+  removed the only cover for an absorbed ping exactly when the run had no way
+  to know whether one had happened.
+
+### Added
+- `usage lookup unavailable` log lines now carry the reason (`bad_json`,
+  `timeout`, `exit_1`, `unparsed`, …) — previously every failure mode shared
+  one indistinguishable message.
+
 ## [2.3.0] - 2026-08-04
 
 ### Changed

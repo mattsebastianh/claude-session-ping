@@ -168,6 +168,71 @@ class TestStateRecordsResets(PingScriptCase):
         self.assertNotIn("resets_at", state)
 
 
+class TestNotificationWording(PingScriptCase):
+    """What the Telegram message may claim, given what the run actually knows."""
+
+    def _telegram_env(self):
+        """Stub curl on PATH and hand the script Telegram creds, so
+        notify_telegram records the outgoing message instead of sending it."""
+        bindir = Path(self.tmp.name) / "bin"
+        bindir.mkdir()
+        sent = Path(self.tmp.name) / "curl_calls.txt"
+        stub = bindir / "curl"
+        stub.write_text("#!/usr/bin/env zsh\nprint -r -- \"$@\" >> '%s'\n" % sent)
+        stub.chmod(0o755)
+        return {
+            "PATH": "%s:%s" % (bindir, os.environ["PATH"]),
+            "TELEGRAM_BOT_TOKEN": "test-token",
+            "TELEGRAM_CHAT_ID": "12345",
+        }, sent
+
+    def test_unverified_ping_does_not_claim_a_window_opened(self):
+        # 2026-08-14 07:02: the ping was absorbed by a window running
+        # 02:59-07:59, the usage lookup failed, and the fallback announced
+        # "✅ Claude session window opened at 07:02" anyway.
+        env, sent = self._telegram_env()
+        self.run_ping("12:02", usage="USAGE_OK=0", extra_env=env)
+        message = sent.read_text()
+        self.assertNotIn("✅", message)
+        self.assertIn("couldn't verify", message)
+
+    def test_verified_new_window_is_still_announced_as_success(self):
+        env, sent = self._telegram_env()
+        start = 1784383200
+        usage = (
+            "USAGE_OK=1\n"
+            "SESSION_PCT=0\n"
+            f"SESSION_RESETS_AT={start + 18000}\n"
+            f"WINDOW_START={start}\n"
+            "WINDOW_IS_NEW=1"
+        )
+        self.run_ping("12:02", usage=usage, extra_env=env)
+        self.assertIn("✅", sent.read_text())
+
+    def test_verified_absorbed_window_is_announced_as_no_new_window(self):
+        env, sent = self._telegram_env()
+        resets = 1784383200
+        usage = (
+            "USAGE_OK=1\n"
+            "SESSION_PCT=40\n"
+            f"SESSION_RESETS_AT={resets}\n"
+            f"WINDOW_START={resets - 18000}\n"
+            "WINDOW_IS_NEW=0"
+        )
+        self.run_ping("12:02", usage=usage, extra_env=env)
+        self.assertIn("No new window opened", sent.read_text())
+
+
+class TestLookupDiagnostics(PingScriptCase):
+    def test_logs_the_reason_the_lookup_failed(self):
+        _, log = self.run_ping("12:02", usage="USAGE_OK=0\nUSAGE_ERROR=bad_json")
+        self.assertIn("usage lookup unavailable (bad_json)", log)
+
+    def test_logs_unknown_when_no_reason_is_reported(self):
+        _, log = self.run_ping("12:02", usage="USAGE_OK=0")
+        self.assertIn("usage lookup unavailable (unknown)", log)
+
+
 class TestWindowLabel(PingScriptCase):
     def test_late_run_records_the_target_not_the_wake_time(self):
         # State must say the 09:02 window, not "12:07".
@@ -260,6 +325,19 @@ class TestBackupMode(PingScriptCase):
         # the job is removed, and label removal works without it.
         self.assertIn("remove com.claude-session-ping.backup-1732",
                       calls.read_text())
+
+    def test_unverified_lookup_leaves_a_pending_backup_alone(self):
+        # Clearing on "I don't know" removes the only cover for an absorbed
+        # ping: on 2026-08-14 the 07:02 run reaped the safety net and the
+        # real window (07:59-12:59) closed 4h before the next target.
+        env, calls, backup_dir = self._backup_env()
+        pending = backup_dir / "com.claude-session-ping.backup-1732.plist"
+        pending.write_text("<plist/>")
+        code, log = self.run_ping("17:02", usage="USAGE_OK=0", extra_env=env)
+        self.assertEqual(code, 0)
+        self.assertTrue(pending.exists())
+        self.assertNotIn("remove", calls.read_text() if calls.exists() else "")
+        self.assertIn("pending backup left in place", log)
 
     def test_backup_instance_cleanup_survives_its_own_sigterm(self):
         # launchctl remove/unload of the job a backup instance was started

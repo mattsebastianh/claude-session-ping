@@ -17,30 +17,74 @@ def ts(y, mo, d, h, mi):
     return int(datetime.datetime(y, mo, d, h, mi).timestamp())
 
 
+RESULT_JSON = '{"type":"result","result":"Current session: 1% used"}'
+# An MCP server writes this to stdout — not stderr — after the JSON result.
+MCP_NOISE = "Client.listTools() called but server does not advertise tools capability - returning empty list"
+
+
 class TestFetchUsageText(unittest.TestCase):
-    def test_returns_result_string_on_success(self):
-        payload = '{"type":"result","result":"Current session: 1% used"}'
-        completed = subprocess.CompletedProcess([], 0, stdout=payload, stderr="")
+    def _run(self, stdout, returncode=0):
+        completed = subprocess.CompletedProcess([], returncode, stdout=stdout, stderr="")
         with patch("subprocess.run", return_value=completed):
-            self.assertEqual(claude_usage.fetch_usage_text(), "Current session: 1% used")
+            return claude_usage.fetch_usage_text()
+
+    def test_returns_result_string_on_success(self):
+        self.assertEqual(self._run(RESULT_JSON), ("Current session: 1% used", ""))
 
     def test_returns_none_on_nonzero_exit(self):
-        completed = subprocess.CompletedProcess([], 1, stdout="", stderr="boom")
-        with patch("subprocess.run", return_value=completed):
-            self.assertIsNone(claude_usage.fetch_usage_text())
+        self.assertEqual(self._run("", returncode=1), (None, "exit_1"))
 
     def test_returns_none_on_timeout(self):
         with patch("subprocess.run", side_effect=subprocess.TimeoutExpired("claude", 30)):
-            self.assertIsNone(claude_usage.fetch_usage_text())
+            self.assertEqual(claude_usage.fetch_usage_text(), (None, "timeout"))
 
     def test_returns_none_when_claude_missing(self):
         with patch("subprocess.run", side_effect=FileNotFoundError()):
-            self.assertIsNone(claude_usage.fetch_usage_text())
+            self.assertEqual(claude_usage.fetch_usage_text(), (None, "not_found"))
 
     def test_returns_none_on_bad_json(self):
-        completed = subprocess.CompletedProcess([], 0, stdout="not json", stderr="")
-        with patch("subprocess.run", return_value=completed):
-            self.assertIsNone(claude_usage.fetch_usage_text())
+        self.assertEqual(self._run("not json"), (None, "bad_json"))
+
+    def test_returns_none_when_result_is_not_a_string(self):
+        self.assertEqual(self._run('{"type":"result","result":null}'), (None, "no_result"))
+
+    def test_ignores_mcp_noise_printed_after_the_json(self):
+        # 2026-08-14: this trailing stdout line made json.loads raise
+        # "Extra data", so 77 of 136 lookups silently degraded to the
+        # schedule — and a 07:02 ping absorbed by an existing window was
+        # announced as having opened one.
+        self.assertEqual(
+            self._run(f"{RESULT_JSON}\n{MCP_NOISE}\n"),
+            ("Current session: 1% used", ""),
+        )
+
+    def test_ignores_noise_printed_before_the_json(self):
+        self.assertEqual(
+            self._run(f"{MCP_NOISE}\n{RESULT_JSON}\n"),
+            ("Current session: 1% used", ""),
+        )
+
+    def test_reports_bad_json_when_no_line_is_a_result(self):
+        self.assertEqual(self._run(f"{MCP_NOISE}\nstill not json\n"), (None, "bad_json"))
+
+
+class TestGetUsageWithReason(unittest.TestCase):
+    def test_reports_unparsed_when_prose_does_not_match(self):
+        with patch.object(claude_usage, "fetch_usage_text", return_value=("gibberish", "")):
+            usage, reason = claude_usage.get_usage_with_reason(ts(2026, 8, 14, 12, 2))
+        self.assertIsNone(usage)
+        self.assertEqual(reason, "unparsed")
+
+    def test_passes_the_fetch_reason_through(self):
+        with patch.object(claude_usage, "fetch_usage_text", return_value=(None, "timeout")):
+            self.assertEqual(claude_usage.get_usage_with_reason(0), (None, "timeout"))
+
+    def test_get_usage_still_returns_only_the_dict(self):
+        # The Telegram daemon calls this one.
+        text = "Current session: 1% used · resets Aug 14 at 12:59pm (America/Guayaquil)"
+        with patch.object(claude_usage, "fetch_usage_text", return_value=(text, "")):
+            usage = claude_usage.get_usage(ts(2026, 8, 14, 12, 2))
+        self.assertEqual(usage["session"]["resets_at"], ts(2026, 8, 14, 12, 59))
 
 
 class TestShellLines(unittest.TestCase):
@@ -50,6 +94,12 @@ class TestShellLines(unittest.TestCase):
     def test_reports_not_ok_when_session_absent(self):
         usage = {"session": None, "weekly": {"pct": 50.0, "resets_at": 0}}
         self.assertEqual(claude_usage.shell_lines(usage, ts(2026, 7, 15, 14, 15)), ["USAGE_OK=0"])
+
+    def test_emits_the_failure_reason_for_the_log(self):
+        # Without this the shell logs one undifferentiated "usage lookup
+        # unavailable" for timeouts, crashes and parse failures alike.
+        lines = claude_usage.shell_lines(None, ts(2026, 8, 14, 12, 2), reason="bad_json")
+        self.assertEqual(lines, ["USAGE_OK=0", "USAGE_ERROR=bad_json"])
 
     def test_marks_window_new_when_start_is_within_tolerance(self):
         now = ts(2026, 7, 15, 14, 10)

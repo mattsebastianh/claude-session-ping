@@ -273,14 +273,16 @@ notify_telegram() {
 # just falls back to it.
 load_usage() {
   USAGE_OK=0
+  USAGE_ERROR=""
   local output
   if ! output=$(eval "$USAGE_CMD" 2>/dev/null); then
+    USAGE_ERROR="helper_failed"
     return 0
   fi
   local line
   for line in ${(f)output}; do
     case "$line" in
-      USAGE_OK=*|SESSION_PCT=*|SESSION_RESETS_AT=*|WINDOW_START=*|WINDOW_IS_NEW=*|WEEKLY_PCT=*|WEEKLY_WARN=*)
+      USAGE_OK=*|USAGE_ERROR=*|SESSION_PCT=*|SESSION_RESETS_AT=*|WINDOW_START=*|WINDOW_IS_NEW=*|WEEKLY_PCT=*|WEEKLY_WARN=*)
         eval "$line"
         ;;
     esac
@@ -308,7 +310,11 @@ success_message() {
     fi
     body="${body}$(weekly_suffix)"
   else
-    body="✅ Claude session window opened at ${WINDOW_LABEL} — active until ~$(date -v+5H '+%H:%M')."
+    # No usage lookup means no way to tell a window this ping opened from one
+    # that absorbed it — on 2026-08-14 07:02 a ping swallowed by an existing
+    # 02:59-07:59 window was announced as "✅ opened at 07:02". Say only what
+    # is actually known: the ping went through.
+    body="⚠️ Pinged at ${WINDOW_LABEL}, but couldn't verify the real window. If it opened one, that runs until ~$(date -v+5H '+%H:%M')."
   fi
   printf '%s\n%s' "$body" "$USAGE_LINK"
 }
@@ -364,11 +370,17 @@ while true; do
       echo "[$(date '+%Y-%m-%d %H:%M:%S')] real window $(hhmm "$WINDOW_START")-$(hhmm "$SESSION_RESETS_AT") (new=${WINDOW_IS_NEW})" >>"$LOG_FILE"
     else
       write_state "success"
-      echo "[$(date '+%Y-%m-%d %H:%M:%S')] usage lookup unavailable, using scheduled window" >>"$LOG_FILE"
+      echo "[$(date '+%Y-%m-%d %H:%M:%S')] usage lookup unavailable (${USAGE_ERROR:-unknown}), using scheduled window" >>"$LOG_FILE"
     fi
     notify_telegram "$(success_message)"
     # Backup ping: only when we know the real window and it absorbed this ping.
-    if [[ "${USAGE_OK:-0}" == "1" && "${WINDOW_IS_NEW:-0}" == "0" ]]; then
+    if [[ "${USAGE_OK:-0}" != "1" ]]; then
+      # Unverified: this ping may well have been absorbed, and a pending
+      # backup is the only cover for that case. Reaping it on a lookup
+      # failure (as this did until 2026-08-14) discards the safety net
+      # precisely when the run is least sure it opened anything.
+      echo "[$(date '+%Y-%m-%d %H:%M:%S')] pending backup left in place (window unverified)" >>"$LOG_FILE"
+    elif [[ "${WINDOW_IS_NEW:-0}" == "0" ]]; then
       schedule_backup "$SESSION_RESETS_AT"
     else
       clear_backup
