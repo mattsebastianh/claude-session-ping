@@ -1,5 +1,6 @@
 import datetime
 import os
+import socket
 import ssl
 import sys
 import unittest
@@ -363,6 +364,18 @@ class TestCountsTowardOutage(unittest.TestCase):
 
     def test_url_error_wrapping_a_timeout_is_not_an_outage(self):
         exc = urllib.error.URLError(TimeoutError("timed out"))
+        self.assertFalse(counts_toward_outage(exc))
+
+    def test_socket_timeout_is_not_an_outage(self):
+        # What urllib actually raises on a read timeout. On Python 3.9 (the
+        # interpreter launchd runs the daemon under) socket.timeout is NOT a
+        # TimeoutError subclass — they were only unified in 3.10 — so an
+        # isinstance(exc, TimeoutError) check silently misses every DarkWake
+        # timeout on that runtime.
+        self.assertFalse(counts_toward_outage(socket.timeout("The read operation timed out")))
+
+    def test_url_error_wrapping_a_socket_timeout_is_not_an_outage(self):
+        exc = urllib.error.URLError(socket.timeout("timed out"))
         self.assertFalse(counts_toward_outage(exc))
 
     def test_ssl_read_timeout_is_not_an_outage(self):

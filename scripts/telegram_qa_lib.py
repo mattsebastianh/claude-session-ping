@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import datetime
 import re
+import socket
 import ssl
 
 TARGETS = ["07:02", "12:02", "17:02", "22:02"]
@@ -121,7 +122,13 @@ def usage_prompt_line(usage: dict | None) -> str:
 
 
 def _is_timeout(exc: BaseException) -> bool:
-    if isinstance(exc, TimeoutError):
+    # socket.timeout is listed separately from TimeoutError on purpose: the two
+    # were only merged in Python 3.10, and launchd runs this daemon under the
+    # system 3.9, where socket.timeout is a bare OSError subclass. urllib
+    # raises socket.timeout for a read timeout, so checking TimeoutError alone
+    # missed every DarkWake timeout on that runtime — the exact false alarms
+    # this filter exists to stop (seen again 2026-08-25 14:35).
+    if isinstance(exc, (TimeoutError, socket.timeout)):
         return True
     # Over HTTPS, the same dead-socket-after-DarkWake timeout can surface as
     # ssl.SSLError instead of socket.timeout/TimeoutError (e.g. during the
