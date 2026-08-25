@@ -7,6 +7,22 @@ and this project follows [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [2.4.1] - 2026-08-25
+
+### Fixed
+- Telegram read timeouts no longer count toward the outage alert on Python 3.9,
+  the interpreter launchd runs the daemon under: `socket.timeout` only became
+  an alias of `TimeoutError` in 3.10, so the existing filter missed the very
+  DarkWake timeouts it was written for. The v2.4.0 `ssl.SSLError` fix covered a
+  neighbouring case but not this one.
+- A ping is no longer reported as unverified just because the window it opened
+  hadn't registered yet: the usage lookup now re-asks up to
+  `CLAUDE_SESSION_PING_USAGE_RETRY_ATTEMPTS` (3) times,
+  `CLAUDE_SESSION_PING_USAGE_RETRY_DELAY` (15s) apart, when the answer is "no
+  session". On 2026-08-25 this cost both the 07:02 and 12:02 verifications
+  even though each ping had opened a window. Only "no session" is retried —
+  timeouts and unparseable replies still fail immediately.
+
 ## [2.4.0] - 2026-08-25
 
 ### Added
@@ -173,7 +189,8 @@ Initial release: a `launchd`-based keepalive ping, no LLM required to decide
   retries on a usage-limit/blocked response.
 - `install.sh`, MIT license, initial README.
 
-[Unreleased]: https://github.com/mattsebastianh/claude-session-ping/compare/v2.4.0...HEAD
+[Unreleased]: https://github.com/mattsebastianh/claude-session-ping/compare/v2.4.1...HEAD
+[2.4.1]: https://github.com/mattsebastianh/claude-session-ping/compare/v2.4.0...v2.4.1
 [2.4.0]: https://github.com/mattsebastianh/claude-session-ping/compare/v2.3.1...v2.4.0
 [2.3.1]: https://github.com/mattsebastianh/claude-session-ping/compare/v2.3.0...v2.3.1
 [2.3.0]: https://github.com/mattsebastianh/claude-session-ping/compare/v2.2.2...v2.3.0
