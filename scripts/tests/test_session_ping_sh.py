@@ -11,6 +11,7 @@ import os
 import subprocess
 import sys
 import tempfile
+import time
 import unittest
 from pathlib import Path
 
@@ -231,6 +232,106 @@ class TestLookupDiagnostics(PingScriptCase):
     def test_logs_unknown_when_no_reason_is_reported(self):
         _, log = self.run_ping("12:02", usage="USAGE_OK=0")
         self.assertIn("usage lookup unavailable (unknown)", log)
+
+
+class TestNoSessionSettleRetry(PingScriptCase):
+    """The lookup fires the instant the ping returns, so `/usage` can still
+    report no session for a window that just opened (2026-08-25, twice).
+    """
+
+    def _scripted_usage_cmd(self, *responses):
+        """A usage stub returning a different payload on each successive call.
+
+        Emulates the real race: the first ask sees no session, a later one
+        sees the window that had just opened.
+        """
+        counter = Path(self.tmp.name) / "usage_calls"
+        script = Path(self.tmp.name) / "usage_stub.sh"
+
+        def emit(response):
+            args = " ".join("'%s'" % line for line in response.split("\n"))
+            return r"printf '%s\n' " + args
+
+        lines = [
+            "#!/bin/sh",
+            f'n=$(cat "{counter}" 2>/dev/null || echo 0)',
+            "n=$((n + 1))",
+            f'echo "$n" > "{counter}"',
+        ]
+        for i, resp in enumerate(responses, start=1):
+            lines.append(f'if [ "$n" -eq {i} ]; then {emit(resp)}; exit 0; fi')
+        # Past the scripted responses, keep returning the last one.
+        lines.append(emit(responses[-1]))
+
+        script.write_text("\n".join(lines) + "\n")
+        script.chmod(0o755)
+        return str(script), counter
+
+    def _verified_usage(self):
+        start = int(time.time()) - 60
+        return (
+            "USAGE_OK=1\n"
+            "SESSION_PCT=1\n"
+            f"SESSION_RESETS_AT={start + 5 * 3600}\n"
+            f"WINDOW_START={start}\n"
+            "WINDOW_IS_NEW=1"
+        )
+
+    def test_retries_no_session_and_verifies_on_second_ask(self):
+        cmd, counter = self._scripted_usage_cmd(
+            "USAGE_OK=0\nUSAGE_ERROR=no_session", self._verified_usage()
+        )
+        _, log = self.run_ping(
+            "12:02",
+            extra_env={
+                "CLAUDE_SESSION_PING_USAGE_CMD": cmd,
+                "CLAUDE_SESSION_PING_USAGE_RETRY_DELAY": "0",
+            },
+        )
+        self.assertIn("real window", log)
+        self.assertNotIn("usage lookup unavailable", log)
+        self.assertEqual(counter.read_text().strip(), "2")
+
+    def test_gives_up_after_the_attempt_budget(self):
+        cmd, counter = self._scripted_usage_cmd("USAGE_OK=0\nUSAGE_ERROR=no_session")
+        _, log = self.run_ping(
+            "12:02",
+            extra_env={
+                "CLAUDE_SESSION_PING_USAGE_CMD": cmd,
+                "CLAUDE_SESSION_PING_USAGE_RETRY_DELAY": "0",
+                "CLAUDE_SESSION_PING_USAGE_RETRY_ATTEMPTS": "3",
+            },
+        )
+        self.assertIn("usage lookup unavailable (no_session)", log)
+        self.assertEqual(counter.read_text().strip(), "3")
+
+    def test_does_not_retry_a_slug_that_will_not_change(self):
+        # A timeout/bad_json fails identically on a second ask, so retrying
+        # only delays the notification.
+        cmd, counter = self._scripted_usage_cmd(
+            "USAGE_OK=0\nUSAGE_ERROR=bad_json", self._verified_usage()
+        )
+        _, log = self.run_ping(
+            "12:02",
+            extra_env={
+                "CLAUDE_SESSION_PING_USAGE_CMD": cmd,
+                "CLAUDE_SESSION_PING_USAGE_RETRY_DELAY": "0",
+            },
+        )
+        self.assertIn("usage lookup unavailable (bad_json)", log)
+        self.assertEqual(counter.read_text().strip(), "1")
+
+    def test_verified_first_ask_does_not_retry(self):
+        cmd, counter = self._scripted_usage_cmd(self._verified_usage())
+        _, log = self.run_ping(
+            "12:02",
+            extra_env={
+                "CLAUDE_SESSION_PING_USAGE_CMD": cmd,
+                "CLAUDE_SESSION_PING_USAGE_RETRY_DELAY": "0",
+            },
+        )
+        self.assertIn("real window", log)
+        self.assertEqual(counter.read_text().strip(), "1")
 
 
 class TestWindowLabel(PingScriptCase):

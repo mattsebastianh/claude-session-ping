@@ -33,7 +33,12 @@ decide *when* to fire, only plain system scheduling and shell code.
   4. Logs everything to `logs/claude-session-ping.log` in the project
      directory (override with `CLAUDE_SESSION_PING_LOG`).
   5. Asks Claude for the **real** usage window via `claude -p "/usage"` and
-     reports the true start/end in notifications.
+     reports the true start/end in notifications. That question fires the
+     moment the ping returns, so it can arrive before the just-opened window
+     has registered; if the answer is "no session", the script re-asks up to
+     3 times, 15s apart, before falling back to the schedule
+     (`CLAUDE_SESSION_PING_USAGE_RETRY_ATTEMPTS` /
+     `..._USAGE_RETRY_DELAY`).
 
 The schedule is only an approximation of the real window, which is why step 5
 exists. A window starts when you first use Claude, not when the clock says

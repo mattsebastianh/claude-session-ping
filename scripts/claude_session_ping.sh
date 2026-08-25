@@ -14,6 +14,13 @@ TARGETS=(0702 1202 1702 2202)
 GRACE_MINUTES="${CLAUDE_SESSION_PING_GRACE_MINUTES:-65}"
 MAX_RETRIES="${CLAUDE_SESSION_PING_MAX_RETRIES:-4}"
 RETRY_DELAY_SECONDS="${CLAUDE_SESSION_PING_RETRY_DELAY:-300}"
+# The usage lookup fires the instant the ping returns, so `/usage` can still
+# report no session for a window that opened seconds earlier. On 2026-08-25
+# that lost both the 07:02 and 12:02 verifications: each ping did open a
+# window (the 12:02 one ran 11:59-16:59) but was reported as unverified.
+# Re-ask a few times before believing it — see load_usage_settled().
+USAGE_RETRY_ATTEMPTS="${CLAUDE_SESSION_PING_USAGE_RETRY_ATTEMPTS:-3}"
+USAGE_RETRY_DELAY_SECONDS="${CLAUDE_SESSION_PING_USAGE_RETRY_DELAY:-15}"
 LIMIT_PATTERN='(usage limit|quota|blocked|rate limit|try again later)'
 USAGE_LINK='https://claude.ai/new#settings/usage'
 USAGE_CMD="${CLAUDE_SESSION_PING_USAGE_CMD:-python3 $(cd "$(dirname "$0")" && pwd)/claude_usage.py --shell}"
@@ -290,6 +297,32 @@ load_usage() {
   return 0
 }
 
+# load_usage, but tolerant of a window that has not propagated yet.
+#
+# Only "no_session" is retried. Right after the opening ping, "the window
+# exists but /usage hasn't caught up" and "there is genuinely no window" are
+# indistinguishable, and only the first resolves by waiting. Every other
+# slug (timeout, not_found, bad_json, helper_failed) fails identically on a
+# second ask, so retrying those would only delay the Telegram message.
+load_usage_settled() {
+  local attempt=1
+  while true; do
+    load_usage
+    if [[ "${USAGE_OK:-0}" == "1" ]]; then
+      return 0
+    fi
+    if [[ "${USAGE_ERROR:-}" != "no_session" ]]; then
+      return 0
+    fi
+    if (( attempt >= USAGE_RETRY_ATTEMPTS )); then
+      return 0
+    fi
+    echo "[$(date '+%Y-%m-%d %H:%M:%S')] usage lookup saw no session (attempt ${attempt}/${USAGE_RETRY_ATTEMPTS}), re-asking in ${USAGE_RETRY_DELAY_SECONDS}s" >>"$LOG_FILE"
+    sleep "$USAGE_RETRY_DELAY_SECONDS"
+    attempt=$((attempt + 1))
+  done
+}
+
 hhmm() {
   date -r "$1" '+%H:%M'
 }
@@ -364,7 +397,7 @@ while true; do
 
   if send_ping "$MESSAGE"; then
     echo "[$(date '+%Y-%m-%d %H:%M:%S')] sent successfully (attempt $attempt)" >>"$LOG_FILE"
-    load_usage
+    load_usage_settled
     if [[ "${USAGE_OK:-0}" == "1" ]]; then
       write_state "success" "$WINDOW_START" "$SESSION_RESETS_AT"
       echo "[$(date '+%Y-%m-%d %H:%M:%S')] real window $(hhmm "$WINDOW_START")-$(hhmm "$SESSION_RESETS_AT") (new=${WINDOW_IS_NEW})" >>"$LOG_FILE"
