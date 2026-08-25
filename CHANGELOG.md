@@ -7,6 +7,32 @@ and this project follows [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [2.4.0] - 2026-08-25
+
+### Added
+- Telegram slash commands `/status`, `/usage`, `/window`, `/ends`, `/next`,
+  registered with Telegram at startup so they appear in the client's command
+  menu. Each maps straight to a local intent, bypassing keyword matching.
+- A `status` intent answering broad questions ("session info", "overview",
+  "status", "summary") locally with a six-line status block, so the most
+  common question costs no LLM call and is formatted identically every time.
+  Matched last of all intents, so "quota status" still returns just the quota.
+
+### Changed
+- Q&A bot's free-form fallback now calls OpenRouter (`openai/gpt-oss-20b` by
+  default) instead of OpenAI, for a cheaper per-question cost. Replace
+  `OPENAI_API_KEY`/`OPENAI_MODEL` with `OPENROUTER_API_KEY`/`OPENROUTER_MODEL`
+  in `.env`.
+- Free-form fallback answers are prompted for emoji-labeled, one-fact-per-line
+  output rather than a run-on sentence, so an LLM answer looks like the
+  locally-generated ones.
+
+### Fixed
+- Telegram polling no longer raises a false outage alert for SSL-layer
+  read/handshake timeouts (`ssl.SSLError`) — the same DarkWake dead-socket
+  case already filtered for plain `TimeoutError`, since `ssl.SSLError` isn't
+  a `TimeoutError` subclass and was slipping through the outage filter.
+
 ## [2.3.1] - 2026-08-14
 
 ### Fixed
@@ -147,7 +173,8 @@ Initial release: a `launchd`-based keepalive ping, no LLM required to decide
   retries on a usage-limit/blocked response.
 - `install.sh`, MIT license, initial README.
 
-[Unreleased]: https://github.com/mattsebastianh/claude-session-ping/compare/v2.3.1...HEAD
+[Unreleased]: https://github.com/mattsebastianh/claude-session-ping/compare/v2.4.0...HEAD
+[2.4.0]: https://github.com/mattsebastianh/claude-session-ping/compare/v2.3.1...v2.4.0
 [2.3.1]: https://github.com/mattsebastianh/claude-session-ping/compare/v2.3.0...v2.3.1
 [2.3.0]: https://github.com/mattsebastianh/claude-session-ping/compare/v2.2.2...v2.3.0
 [2.2.2]: https://github.com/mattsebastianh/claude-session-ping/compare/v2.2.1...v2.2.2
