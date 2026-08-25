@@ -3,7 +3,7 @@
 
 Answers questions about the current keepalive schedule using the shared
 state file written by scripts/claude_session_ping.sh, falling back to an
-OpenAI chat completion for anything it doesn't recognize.
+OpenRouter chat completion for anything it doesn't recognize.
 
 Requires only the Python 3 standard library.
 """
@@ -21,10 +21,13 @@ from pathlib import Path
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from claude_usage import get_usage  # noqa: E402
 from telegram_qa_lib import (  # noqa: E402
+    BOT_COMMANDS,
+    command_intent,
     counts_toward_outage,
     current_window_start,
-    extract_output_text,
+    extract_chat_completion_text,
     next_failure_count,
+    format_status_reply,
     format_time,
     format_usage_reply,
     humanize_delta,
@@ -46,7 +49,8 @@ LOG_FILE = Path(os.environ.get(
 ))
 
 POLL_TIMEOUT_SECONDS = 30
-DEFAULT_OPENAI_MODEL = "gpt-5-nano"
+# gpt-oss-20b is OpenRouter's cheapest gpt-oss variant (gpt-oss-120b costs more).
+DEFAULT_OPENROUTER_MODEL = "openai/gpt-oss-20b"
 MAX_GETUPDATES_FAILURES_BEFORE_ALERT = 3
 
 
@@ -86,6 +90,20 @@ def send_message(token: str, chat_id: str, text: str) -> None:
         log(f"sendMessage failed: {exc}")
 
 
+def register_commands(token: str) -> None:
+    """Publish the slash-command menu so it appears in Telegram's UI.
+
+    Best-effort: a failure here costs the menu, not the bot, so it must never
+    stop the poll loop from starting.
+    """
+    commands = [{"command": name, "description": desc} for name, desc in BOT_COMMANDS]
+    try:
+        telegram_request(token, "setMyCommands", {"commands": json.dumps(commands)}, timeout=10)
+        log(f"registered {len(commands)} bot commands")
+    except (urllib.error.URLError, OSError, json.JSONDecodeError) as exc:
+        log(f"setMyCommands failed: {exc}")
+
+
 def maybe_notify_poll_failure(token: str, chat_id: str, failure_count: int, exc: str) -> None:
     if failure_count != MAX_GETUPDATES_FAILURES_BEFORE_ALERT:
         return
@@ -120,7 +138,7 @@ def get_updates(token: str, offset: int | None) -> tuple[list[dict], str, str | 
     return result.get("result", []), "ok", None
 
 
-def openai_answer(api_key: str, model: str, state: dict, question: str, window_start: int = 0, usage: dict | None = None) -> str:
+def openrouter_answer(api_key: str, model: str, state: dict, question: str, window_start: int = 0, usage: dict | None = None) -> str:
     now = int(time.time())
     starts = next_start_times(now)
     if window_start:
@@ -132,24 +150,38 @@ def openai_answer(api_key: str, model: str, state: dict, question: str, window_s
     else:
         window_desc = "none active"
     system_prompt = (
-        "You are a terse status bot for a Claude Code keepalive scheduler. "
+        "You are a status bot for a Claude Code keepalive scheduler. "
         "Daily windows open at 07:02, 12:02, 17:02, 22:02 and each stays active for 5 hours. "
         f"Current window: {window_desc}, "
         f"last_ping_status={state.get('status')}. "
         f"Next start: {format_time(starts[0]) if starts else 'unknown'}. "
         f"Next next start: {format_time(starts[1]) if len(starts) > 1 else 'unknown'}. "
         f"{usage_prompt_line(usage)}"
-        "Answer the user's question in one short sentence using this data."
+        "Answer the user's question using only the data above. "
+        "If the answer has more than one fact, format it as short labeled "
+        "lines (one fact per line, each starting with a relevant emoji) "
+        "instead of a single run-on sentence — for example:\n"
+        "🪟 Window: 07:02–12:02 (48% elapsed)\n"
+        "✅ Last ping: success\n"
+        "⏭️ Next start: 12:02\n"
+        "⏭️ Then: 17:02\n"
+        "📊 Session: 6% used — resets 12:02\n"
+        "📅 Weekly: 3% used — resets Sun 00:00\n"
+        "If the question asks for \"info\", \"status\", \"summary\", or is "
+        "otherwise open-ended, output ALL six lines — \"session info\" is a "
+        "request for the whole picture, not just the session line. Reply "
+        "with a single line only when the question names one specific fact "
+        "(e.g. \"when does the window end?\")."
     )
     payload = {
         "model": model,
-        "input": [
+        "messages": [
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": question},
         ],
     }
     req = urllib.request.Request(
-        "https://api.openai.com/v1/responses",
+        "https://openrouter.ai/api/v1/chat/completions",
         data=json.dumps(payload).encode(),
         headers={
             "Authorization": f"Bearer {api_key}",
@@ -159,13 +191,13 @@ def openai_answer(api_key: str, model: str, state: dict, question: str, window_s
     try:
         with urllib.request.urlopen(req, timeout=20) as resp:
             result = json.loads(resp.read().decode())
-        text = extract_output_text(result)
+        text = extract_chat_completion_text(result)
         if text:
             return text
-        log(f"openai response had no message text: {json.dumps(result)[:500]}")
+        log(f"openrouter response had no message text: {json.dumps(result)[:500]}")
         return "Sorry, I couldn't reach the answering service right now."
     except (urllib.error.URLError, OSError, json.JSONDecodeError) as exc:
-        log(f"openai request failed: {exc}")
+        log(f"openrouter request failed: {exc}")
         return "Sorry, I couldn't reach the answering service right now."
 
 
@@ -193,7 +225,9 @@ def fetch_usage_and_window(now: int) -> tuple[dict | None, int]:
 def answer_question(env: dict, question: str) -> str:
     state = load_state()
     now = int(time.time())
-    intent = match_intent(question)
+    # A slash command is an explicit intent, so it bypasses keyword matching
+    # (and never reaches the LLM fallback).
+    intent = command_intent(question) or match_intent(question)
 
     # Answered from the schedule alone, so skip the usage lookup's subprocess.
     if intent == "next_start":
@@ -209,6 +243,8 @@ def answer_question(env: dict, question: str) -> str:
 
     usage, window_start = fetch_usage_and_window(now)
 
+    if intent == "status":
+        return format_status_reply(usage, window_start, str(state.get("status", "unknown")), now)
     if intent == "usage":
         if usage:
             return format_usage_reply(usage, now)
@@ -232,11 +268,11 @@ def answer_question(env: dict, question: str) -> str:
             return "No session window is active right now."
         end = window_end(window_start)
         return f"Current window ends around {format_time(end)} ({humanize_delta(end - now)} left)."
-    api_key = env.get("OPENAI_API_KEY")
+    api_key = env.get("OPENROUTER_API_KEY")
     if not api_key:
-        return "I don't recognize that question and no OPENAI_API_KEY is configured."
-    model = env.get("OPENAI_MODEL", DEFAULT_OPENAI_MODEL)
-    return openai_answer(api_key, model, state, question, window_start, usage)
+        return "I don't recognize that question and no OPENROUTER_API_KEY is configured."
+    model = env.get("OPENROUTER_MODEL", DEFAULT_OPENROUTER_MODEL)
+    return openrouter_answer(api_key, model, state, question, window_start, usage)
 
 
 def run() -> None:
@@ -247,6 +283,7 @@ def run() -> None:
         log("TELEGRAM_BOT_TOKEN/TELEGRAM_CHAT_ID not configured, exiting")
         return
 
+    register_commands(token)
     log("daemon started, polling for updates")
     offset = None
     consecutive_failures = 0

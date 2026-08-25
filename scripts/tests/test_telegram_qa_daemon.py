@@ -117,38 +117,72 @@ class TestAnswerQuestion(NoRealUsageLookup):
         )
 
 
+class TestStatusIntent(NoRealUsageLookup):
+    def test_status_question_answers_locally_without_llm(self):
+        now = int(datetime.datetime(2026, 8, 25, 9, 32, 0).timestamp())
+        usage = {
+            "session": {"pct": 16.0, "resets_at": int(datetime.datetime(2026, 8, 25, 12, 2, 0).timestamp())},
+            "weekly": {"pct": 4.0, "resets_at": int(datetime.datetime(2026, 8, 30, 0, 0, 0).timestamp())},
+        }
+        state = {"window_start": 0, "window_label": "07:02", "status": "success"}
+        with patch.object(daemon, "get_usage", return_value=usage), \
+                patch.object(daemon, "load_state", return_value=state), \
+                patch("time.time", return_value=now), \
+                patch.object(daemon, "openrouter_answer", side_effect=AssertionError("must not call LLM")):
+            reply = daemon.answer_question({"OPENROUTER_API_KEY": "sk-test"}, "session overview")
+        self.assertIn("🪟 Window:", reply)
+        self.assertIn("✅ Last ping: success", reply)
+        self.assertIn("📊 Session: 16% used", reply)
+        self.assertIn("📅 Weekly: 4% used", reply)
+
+    def test_slash_command_routes_to_status(self):
+        now = int(datetime.datetime(2026, 8, 25, 9, 32, 0).timestamp())
+        state = {"window_start": 0, "window_label": "07:02", "status": "success"}
+        with patch.object(daemon, "load_state", return_value=state), \
+                patch("time.time", return_value=now), \
+                patch.object(daemon, "openrouter_answer", side_effect=AssertionError("must not call LLM")):
+            reply = daemon.answer_question({"OPENROUTER_API_KEY": "sk-test"}, "/status")
+        self.assertIn("🪟 Window:", reply)
+
+    def test_slash_next_skips_usage_lookup(self):
+        now = int(datetime.datetime(2026, 7, 13, 20, 7, 0).timestamp())
+        with patch.object(daemon, "load_state", return_value=EMPTY_STATE), patch("time.time", return_value=now):
+            reply = daemon.answer_question({}, "/next")
+        self.assertEqual(reply, "Next session window starts at 22:02 (in 1h 55m).")
+
+
 class TestFallbackPaths(NoRealUsageLookup):
     def test_unrecognized_question_without_api_key(self):
         with patch.object(daemon, "load_state", return_value=EMPTY_STATE):
             reply = daemon.answer_question({}, "tell me a joke")
-        self.assertEqual(reply, "I don't recognize that question and no OPENAI_API_KEY is configured.")
+        self.assertEqual(reply, "I don't recognize that question and no OPENROUTER_API_KEY is configured.")
 
-    def test_openai_network_error_returns_friendly_message(self):
+    def test_openrouter_network_error_returns_friendly_message(self):
         import urllib.error
 
         with patch("urllib.request.urlopen", side_effect=urllib.error.URLError("boom")), \
                 patch.object(daemon, "log"):
-            reply = daemon.openai_answer("sk-test", "gpt-5-nano", EMPTY_STATE, "hi")
+            reply = daemon.openrouter_answer("sk-test", "openai/gpt-oss-20b", EMPTY_STATE, "hi")
         self.assertEqual(reply, "Sorry, I couldn't reach the answering service right now.")
 
-    def test_openai_response_without_message_returns_friendly_message(self):
+    def test_openrouter_response_without_message_returns_friendly_message(self):
         import io
 
-        fake = io.BytesIO(b'{"output": [{"type": "reasoning"}]}')
+        fake = io.BytesIO(b'{"choices": []}')
         fake.__enter__ = lambda s: s
         fake.__exit__ = lambda s, *a: False
         with patch("urllib.request.urlopen", return_value=fake), patch.object(daemon, "log"):
-            reply = daemon.openai_answer("sk-test", "gpt-5-nano", EMPTY_STATE, "hi")
+            reply = daemon.openrouter_answer("sk-test", "openai/gpt-oss-20b", EMPTY_STATE, "hi")
         self.assertEqual(reply, "Sorry, I couldn't reach the answering service right now.")
 
-    def test_openai_prompt_includes_live_usage(self):
+    def test_openrouter_prompt_includes_live_usage(self):
         import io
 
         captured = {}
 
         def fake_urlopen(req, timeout=0):
             captured["body"] = json.loads(req.data.decode())
-            fake = io.BytesIO(b'{"output": [{"type": "message", "content": [{"type": "output_text", "text": "ok"}]}]}')
+            fake = io.BytesIO(b'{"choices": [{"message": {"content": "ok"}}]}')
             fake.__enter__ = lambda s: s
             fake.__exit__ = lambda s, *a: False
             return fake
@@ -158,10 +192,12 @@ class TestFallbackPaths(NoRealUsageLookup):
             "weekly": {"pct": 95.0, "resets_at": int(datetime.datetime(2026, 7, 18, 18, 0, 0).timestamp())},
         }
         with patch("urllib.request.urlopen", side_effect=fake_urlopen):
-            reply = daemon.openai_answer("sk-test", "gpt-5-nano", EMPTY_STATE, "am I close to my cap?", usage=usage)
+            reply = daemon.openrouter_answer(
+                "sk-test", "openai/gpt-oss-20b", EMPTY_STATE, "am I close to my cap?", usage=usage
+            )
 
         self.assertEqual(reply, "ok")
-        system_prompt = captured["body"]["input"][0]["content"]
+        system_prompt = captured["body"]["messages"][0]["content"]
         self.assertIn(
             "Live usage: session 32% used, resets 19:10; weekly 95% used, resets Sat 18:00. ",
             system_prompt,

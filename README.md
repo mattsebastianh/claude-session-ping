@@ -170,7 +170,7 @@ notifier/Q&A bot described below.
 ## Testing
 
 Run the unit test suite (pure logic — schedule math, Q&A intent matching,
-env-file parsing — no network calls, no real Claude/Telegram/OpenAI access):
+env-file parsing — no network calls, no real Claude/Telegram/OpenRouter access):
 
 ```zsh
 python3 -m unittest discover -s scripts/tests -t .
@@ -202,7 +202,8 @@ rm ~/Library/LaunchAgents/com.claude-session-ping.plist
 Get a Telegram message every time a keepalive window opens (or fails to
 open after all retries), and ask a bot ad-hoc questions like "what's my
 usage %?", "when does this window end?", or "what's the next session
-start time?". Fully optional — leave the variables below unset and
+start time?" — or use the `/status`, `/usage`, `/window`, `/ends` and
+`/next` shortcuts. Fully optional — leave the variables below unset and
 nothing about the existing behavior changes.
 
 ### Setup
@@ -214,15 +215,15 @@ nothing about the existing behavior changes.
    visit `https://api.telegram.org/bot<YOUR_TOKEN>/getUpdates` in a
    browser and read the numeric `"chat":{"id": ...}` value from the
    response.
-3. **Get an OpenAI API key** (optional, only used as a fallback for
-   questions the bot doesn't recognize) from your OpenAI account.
+3. **Get an OpenRouter API key** (optional, only used as a fallback for
+   questions the bot doesn't recognize) from your OpenRouter account.
 4. Add these to `.env` in the project root (copy from
    `.env.example` if you haven't already):
 
    ```
    TELEGRAM_BOT_TOKEN='123456789:AAExampleTokenReplaceMe'
    TELEGRAM_CHAT_ID='987654321'
-   OPENAI_API_KEY='sk-exampleReplaceMe'
+   OPENROUTER_API_KEY='sk-or-v1-exampleReplaceMe'
    ```
 5. Re-run `./install.sh`. It detects `TELEGRAM_BOT_TOKEN` in your env
    file and additionally installs `com.claude-session-ping.telegram-bot`,
@@ -233,16 +234,33 @@ nothing about the existing behavior changes.
 - **Notifications**: `claude_session_ping.sh` posts a message on every
   attempt's outcome — success (window opened) or failure (all retries
   exhausted).
-- **Q&A**: the daemon answers these locally, with no OpenAI calls:
+- **Q&A**: the daemon answers these locally, with no OpenRouter calls:
+  - "session info" / "overview" / "status" → the full six-line status
+    block (window, last ping, next two starts, session + weekly usage)
   - "what's my usage?" / "weekly limit?" → live session **and** weekly
     usage (percent used + reset times) from `claude -p "/usage"`; falls
     back to a clearly-labeled schedule estimate if the lookup fails
   - "when did this window open?"
   - "when does this window end?"
   - "what's the next session start time?" / "...next next...?"
-  Anything else is sent to OpenAI (`gpt-5-nano` by default, override with
-  `OPENAI_MODEL`) along with the current schedule state and live usage as
-  context.
+
+  Anything else is sent to OpenRouter (`openai/gpt-oss-20b` by default,
+  override with `OPENROUTER_MODEL`) along with the current schedule state
+  and live usage as context.
+- **Slash commands**: the same local answers are bound to commands, which
+  the daemon registers with Telegram at startup so they autocomplete in the
+  client's command menu:
+
+  | Command   | Answers                          |
+  | --------- | -------------------------------- |
+  | `/status` | Full session overview            |
+  | `/usage`  | Session + weekly usage           |
+  | `/window` | When the current window opened   |
+  | `/ends`   | When the current window ends     |
+  | `/next`   | Next session start time          |
+
+  A command is an explicit intent, so it skips keyword matching and never
+  reaches OpenRouter.
 
 ### Manual testing
 
@@ -259,6 +277,17 @@ tail -f logs/claude-session-ping-telegram-bot.log
 
 Then message your bot on Telegram directly and confirm it replies.
 
+**After editing `telegram_qa_daemon.py` or `telegram_qa_lib.py`, restart the
+daemon** — it is long-running, so it keeps serving the code it started with
+and your changes are invisible until it reloads:
+
+```zsh
+launchctl kickstart -k gui/$(id -u)/com.claude-session-ping.telegram-bot
+```
+
+The log line `daemon started, polling for updates` (and, when commands
+register, `registered N bot commands`) confirms the reload.
+
 ### Uninstall
 
 ```zsh
@@ -268,7 +297,7 @@ rm ~/Library/LaunchAgents/com.claude-session-ping.telegram-bot.plist
 
 ## Security
 
-All secrets (Telegram bot token, chat id, OpenAI API key) live only in
+All secrets (Telegram bot token, chat id, OpenRouter API key) live only in
 the project's `.env` file, or wherever `CLAUDE_SESSION_PING_ENV_FILE` points
 if you override it — both are gitignored and never committed. The
 `logs/`, `.claude-session-ping/` (runtime logs and schedule state), and
