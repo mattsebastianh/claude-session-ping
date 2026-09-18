@@ -7,6 +7,8 @@ and this project follows [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [2.5.0] - 2026-09-18
+
 ### Fixed
 - Only one ping runs at a time. The label guard could not see a regular target
   and a backup job both firing late after one wake, so the two retried the
@@ -206,7 +208,8 @@ Initial release: a `launchd`-based keepalive ping, no LLM required to decide
   retries on a usage-limit/blocked response.
 - `install.sh`, MIT license, initial README.
 
-[Unreleased]: https://github.com/mattsebastianh/claude-session-ping/compare/v2.4.1...HEAD
+[Unreleased]: https://github.com/mattsebastianh/claude-session-ping/compare/v2.5.0...HEAD
+[2.5.0]: https://github.com/mattsebastianh/claude-session-ping/compare/v2.4.1...v2.5.0
 [2.4.1]: https://github.com/mattsebastianh/claude-session-ping/compare/v2.4.0...v2.4.1
 [2.4.0]: https://github.com/mattsebastianh/claude-session-ping/compare/v2.3.1...v2.4.0
 [2.3.1]: https://github.com/mattsebastianh/claude-session-ping/compare/v2.3.0...v2.3.1
