@@ -39,6 +39,10 @@ LAUNCHCTL="${CLAUDE_SESSION_PING_LAUNCHCTL:-launchctl}"
 SCRIPT_PATH="$(cd "$(dirname "$0")" && pwd)/$(basename "$0")"
 BACKUP_HELPER="$(cd "$(dirname "$0")" && pwd)/backup_schedule.py"
 
+# Real wall clock, never the mock: used to tell state this run wrote from
+# state another run wrote while this one waited for the lock.
+START_EPOCH="$(date '+%s')"
+
 if [[ -n "$MOCK_TIME" ]]; then
   CURRENT_TIME="${MOCK_TIME//:/}"
 else
@@ -79,6 +83,130 @@ if [[ -z "$MATCHED_TARGET" ]]; then
 fi
 
 WINDOW_LABEL="${MATCHED_TARGET:0:2}:${MATCHED_TARGET:2:2}"
+
+# Only one ping may be in flight at a time, across every label.
+#
+# already_pinged_this_window() below stops one target re-firing after a late
+# wake, but it compares labels, so it cannot see two *different* labels
+# covering the same reopening. On 2026-09-17 the 22:02 target (late run at
+# 22:12) and the backup-2222 job (late run at 22:31) retried in parallel for
+# three and a half hours: both burned their full retry budget against one
+# credit limit, both gave up, and the later state write buried the earlier.
+# Serialising them means the second instance waits for the first's verdict
+# instead of competing with it.
+LOCK_DIR="${CLAUDE_SESSION_PING_LOCK_DIR:-$(dirname "$STATE_FILE")/run.lock}"
+LOCK_OWNER_FILE="$LOCK_DIR/owner"
+# Long enough to outlast a normal retry budget's first attempts, short enough
+# that a wedged holder does not eat this target's whole grace window.
+LOCK_WAIT_SECONDS="${CLAUDE_SESSION_PING_LOCK_WAIT:-600}"
+LOCK_POLL_SECONDS="${CLAUDE_SESSION_PING_LOCK_POLL:-10}"
+LOCK_HELD=0
+LOCK_WAITED=0
+
+release_lock() {
+  (( LOCK_HELD )) || return 0
+  LOCK_HELD=0
+  rm -f "$LOCK_OWNER_FILE"
+  rmdir "$LOCK_DIR" 2>/dev/null || true
+}
+
+# Release on every normal exit path — and only those. There is deliberately
+# no TERM/INT trap: zsh defers a trapped signal until the running foreground
+# command returns, so trapping TERM would keep a backup instance alive inside
+# `claude -p` or a 300s retry sleep for minutes after `launchctl remove` meant
+# to kill it (see OWN_BACKUP_JOB below). That reap is routine, and the whole
+# backup-chaining design assumes it takes effect at once. A signal death
+# therefore strands the lock dir, which is fine: acquire_lock() sees the
+# owner pid is gone and breaks it.
+trap 'release_lock' EXIT
+
+# mkdir is the atomic primitive: macOS has no flock(1).
+acquire_lock() {
+  local deadline=$(( $(date '+%s') + LOCK_WAIT_SECONDS ))
+  local holder_pid holder_label announced=0 unreadable=0
+  while true; do
+    if mkdir "$LOCK_DIR" 2>/dev/null; then
+      print -r -- "$$ $WINDOW_LABEL $(date '+%s')" >"$LOCK_OWNER_FILE"
+      LOCK_HELD=1
+      return 0
+    fi
+
+    holder_pid=""
+    holder_label="?"
+    if [[ -r "$LOCK_OWNER_FILE" ]]; then
+      read -r holder_pid holder_label _ <"$LOCK_OWNER_FILE" 2>/dev/null || true
+    fi
+
+    if [[ -z "$holder_pid" ]]; then
+      # Either the holder is between its mkdir and its write, or it died in
+      # that gap. Only the second is worth breaking the lock for, so re-read
+      # a few times before deciding — the window is microseconds wide.
+      if (( unreadable < 3 )); then
+        unreadable=$((unreadable + 1))
+        sleep 1
+        continue
+      fi
+      echo "[$(date '+%Y-%m-%d %H:%M:%S')] breaking lock with no owner recorded" >>"$LOG_FILE"
+      rm -rf "$LOCK_DIR"
+      unreadable=0
+      continue
+    fi
+    unreadable=0
+
+    if ! kill -0 "$holder_pid" 2>/dev/null; then
+      # SIGKILL or a reboot mid-run: the trap never ran.
+      echo "[$(date '+%Y-%m-%d %H:%M:%S')] breaking stale lock from dead pid $holder_pid ($holder_label)" >>"$LOG_FILE"
+      rm -rf "$LOCK_DIR"
+      continue
+    fi
+
+    if (( announced == 0 )); then
+      echo "[$(date '+%Y-%m-%d %H:%M:%S')] waiting for pid $holder_pid ($holder_label) to finish before pinging $WINDOW_LABEL" >>"$LOG_FILE"
+      announced=1
+    fi
+    LOCK_WAITED=1
+    if (( $(date '+%s') >= deadline )); then
+      return 1
+    fi
+    sleep "$LOCK_POLL_SECONDS"
+  done
+}
+
+if ! acquire_lock; then
+  # Giving up is the safe side: the holder is still working the same
+  # reopening, and a second ping would only spend another attempt on it.
+  echo "[$(date '+%Y-%m-%d %H:%M:%S')] skip ($WINDOW_LABEL: another run held the lock for ${LOCK_WAIT_SECONDS}s)" >>"$LOG_FILE"
+  exit 0
+fi
+
+# A run that waited was, by definition, racing another one. If that other run
+# opened or confirmed a window that is still open, this ping is redundant:
+# whatever it would do about the reopening, the holder has already done.
+window_already_covered() {
+  [[ -f "$STATE_FILE" ]] || return 1
+  python3 - "$STATE_FILE" "$START_EPOCH" <<'PY'
+import json, sys, time
+
+try:
+    with open(sys.argv[1]) as fh:
+        state = json.load(fh)
+except (OSError, ValueError):
+    sys.exit(1)
+if state.get("status") != "success":
+    sys.exit(1)
+if state.get("updated_at", 0) < int(sys.argv[2]):
+    sys.exit(1)  # written before this run started: not the run we waited on
+resets_at = state.get("resets_at")
+if not resets_at or resets_at <= time.time():
+    sys.exit(1)  # unverified, or the window it recorded has already closed
+sys.exit(0)
+PY
+}
+
+if (( LOCK_WAITED )) && window_already_covered; then
+  echo "[$(date '+%Y-%m-%d %H:%M:%S')] skip ($WINDOW_LABEL: the run this one waited for left a window open)" >>"$LOG_FILE"
+  exit 0
+fi
 
 # A late run means launchd may fire this same target again after the next
 # wake; without this guard that would burn a second ping on one window.

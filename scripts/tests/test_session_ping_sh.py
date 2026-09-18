@@ -28,9 +28,9 @@ class PingScriptCase(unittest.TestCase):
         self.state_file = Path(self.tmp.name) / "state.json"
         self.log_file = Path(self.tmp.name) / "ping.log"
 
-    def run_ping(self, mock_time, usage="USAGE_OK=0", grace=None, backup_label=None,
-                 extra_env=None):
-        """Run the script at `mock_time`; returns (exit_code, log_text).
+    def build_env(self, mock_time, usage="USAGE_OK=0", grace=None, backup_label=None,
+                  extra_env=None):
+        """The stubbed environment a run of the script sees.
 
         `usage` may contain multiple newline-separated KEY=VALUE lines; it is
         emitted via printf so load_usage sees each on its own line.
@@ -54,11 +54,51 @@ class PingScriptCase(unittest.TestCase):
             env["CLAUDE_SESSION_PING_BACKUP_LABEL"] = backup_label
         if extra_env:
             env.update(extra_env)
+        return env
+
+    def run_ping(self, *args, **kwargs):
+        """Run the script to completion; returns (exit_code, log_text)."""
+        env = self.build_env(*args, **kwargs)
         completed = subprocess.run(
             ["zsh", str(SCRIPT)], env=env, capture_output=True, text=True, timeout=30
         )
         log = self.log_file.read_text() if self.log_file.exists() else ""
         return completed.returncode, log
+
+    def start_ping(self, *args, **kwargs):
+        """Launch the script in the background; returns the Popen handle.
+
+        Concurrency needs two instances actually overlapping in time, so the
+        lock tests cannot use run_ping's blocking form.
+        """
+        env = self.build_env(*args, **kwargs)
+        proc = subprocess.Popen(
+            ["zsh", str(SCRIPT)], env=env, stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE, text=True,
+        )
+        self.addCleanup(self._reap, proc)
+        return proc
+
+    @staticmethod
+    def _reap(proc):
+        if proc.poll() is None:
+            proc.kill()
+        proc.wait(timeout=10)
+        for pipe in (proc.stdout, proc.stderr):
+            if pipe is not None:
+                pipe.close()
+
+    def read_log(self):
+        return self.log_file.read_text() if self.log_file.exists() else ""
+
+    def wait_for_log(self, needle, timeout=15):
+        """Block until `needle` shows up in the log, or fail the test."""
+        deadline = time.time() + timeout
+        while time.time() < deadline:
+            if needle in self.read_log():
+                return
+            time.sleep(0.1)
+        self.fail("%r never appeared in the log:\n%s" % (needle, self.read_log()))
 
 
 class TestScheduleGuard(PingScriptCase):
@@ -535,3 +575,138 @@ class TestBackupMode(PingScriptCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestConcurrencyLock(PingScriptCase):
+    """Only one ping in flight at a time, across every label.
+
+    The state guard compares labels, so before the lock two *different*
+    labels could work the same reopening at once — which is what happened on
+    2026-09-17, when the 22:02 target and the backup-2222 job spent three and
+    a half hours racing each other.
+    """
+
+    def lock_dir(self):
+        return self.state_file.parent / "run.lock"
+
+    def slow_ping(self, seconds=5):
+        return {"CLAUDE_SESSION_PING_COMMAND": "sleep %d; echo mock-ping" % seconds}
+
+    def future_window(self):
+        """Usage output for a fresh window that is still open."""
+        now = int(time.time())
+        return (
+            "USAGE_OK=1\n"
+            "SESSION_PCT=0\n"
+            f"SESSION_RESETS_AT={now + 18000}\n"
+            f"WINDOW_START={now}\n"
+            "WINDOW_IS_NEW=1"
+        )
+
+    def test_lock_is_released_on_a_normal_run(self):
+        code, log = self.run_ping("12:02")
+        self.assertEqual(code, 0)
+        self.assertIn("sent successfully", log)
+        self.assertFalse(self.lock_dir().exists(), "lock outlived the run")
+
+    def test_lock_is_released_when_the_run_skips(self):
+        # The early skip paths exit before the ping loop; none may strand it.
+        code, log = self.run_ping("14:30")
+        self.assertIn("skip", log)
+        self.assertFalse(self.lock_dir().exists())
+
+    def test_second_label_waits_instead_of_pinging_in_parallel(self):
+        # The 2026-09-17 shape: a backup job fires while the regular target is
+        # still retrying. Before the lock both pinged at once.
+        holder = self.start_ping("22:02", extra_env=self.slow_ping(5))
+        self.wait_for_log("sending Claude keepalive at 2202")
+
+        code, log = self.run_ping("22:31", backup_label="22:31")
+        self.assertEqual(code, 0)
+        self.assertIn("waiting for pid", log)
+        self.assertIn("(22:02)", log)
+        self.assertEqual(holder.wait(timeout=30), 0)
+
+    def test_waiter_skips_when_the_holder_left_a_window_open(self):
+        # Having waited, the backup's reopening is already handled: the run it
+        # waited for opened a window that is still open.
+        env = dict(self.slow_ping(3))
+        holder = self.start_ping("22:02", usage=self.future_window(), extra_env=env)
+        self.wait_for_log("sending Claude keepalive at 2202")
+
+        code, log = self.run_ping("22:31", backup_label="22:31")
+        self.assertEqual(holder.wait(timeout=30), 0)
+        self.assertEqual(code, 0)
+        self.assertIn("left a window open", log)
+        # Exactly one ping was sent for the two runs.
+        self.assertEqual(log.count("sent successfully"), 1)
+
+    def test_waiter_still_pings_when_the_holder_opened_nothing(self):
+        # The holder's ping went through but could not be verified, so no
+        # window is known to be open; the backup must not be suppressed.
+        holder = self.start_ping("22:02", usage="USAGE_OK=0",
+                                 extra_env=self.slow_ping(3))
+        self.wait_for_log("sending Claude keepalive at 2202")
+
+        code, log = self.run_ping("22:31", backup_label="22:31")
+        self.assertEqual(holder.wait(timeout=30), 0)
+        self.assertEqual(code, 0)
+        self.assertIn("waiting for pid", log)
+        self.assertEqual(log.count("sent successfully"), 2)
+
+    def test_waiter_gives_up_after_the_wait_budget(self):
+        # A holder that outlasts the budget keeps the lock; the newcomer must
+        # bail rather than spend another attempt on the same reopening.
+        holder = self.start_ping("22:02", extra_env=self.slow_ping(20))
+        self.wait_for_log("sending Claude keepalive at 2202")
+
+        code, log = self.run_ping(
+            "22:31", backup_label="22:31",
+            extra_env={"CLAUDE_SESSION_PING_LOCK_WAIT": "1",
+                       "CLAUDE_SESSION_PING_LOCK_POLL": "1"},
+        )
+        self.assertEqual(code, 0)
+        self.assertIn("another run held the lock", log)
+        self.assertNotIn("sending Claude keepalive at 2231", log)
+        holder.kill()
+
+    def test_stale_lock_from_a_dead_pid_is_broken(self):
+        # A SIGKILLed or reboot-interrupted run never runs its trap. Without
+        # this the lock would wedge every later ping forever.
+        lock = self.lock_dir()
+        lock.mkdir(parents=True)
+        # PID 2**31-1 is above the kernel's maximum, so it cannot be live.
+        (lock / "owner").write_text("2147483647 07:02 %d\n" % int(time.time()))
+
+        code, log = self.run_ping("12:02")
+        self.assertEqual(code, 0)
+        self.assertIn("breaking stale lock from dead pid", log)
+        self.assertIn("sent successfully", log)
+        self.assertFalse(lock.exists())
+
+    def test_lock_with_no_owner_recorded_is_broken(self):
+        # Crashed between mkdir and the owner write.
+        self.lock_dir().mkdir(parents=True)
+
+        code, log = self.run_ping("12:02")
+        self.assertEqual(code, 0)
+        self.assertIn("breaking lock with no owner recorded", log)
+        self.assertIn("sent successfully", log)
+
+    def test_sigterm_kills_the_run_at_once_and_the_lock_is_recovered(self):
+        # A backup instance is SIGTERMed when another run reaps its launchd
+        # job, and backup chaining assumes that reap takes effect immediately.
+        # A TERM trap would break that: zsh defers a trapped signal until the
+        # foreground command returns, so the instance would live on inside its
+        # ping or its retry sleep. So the run must die on the spot, strand the
+        # lock, and let the next run break it.
+        holder = self.start_ping("22:02", extra_env=self.slow_ping(20))
+        self.wait_for_log("sending Claude keepalive at 2202")
+        holder.terminate()
+        holder.wait(timeout=5)  # not the 20s the stubbed ping still had to run
+        self.assertTrue(self.lock_dir().exists())
+
+        code, log = self.run_ping("22:31", backup_label="22:31")
+        self.assertEqual(code, 0)
+        self.assertIn("breaking stale lock from dead pid", log)
+        self.assertIn("sending Claude keepalive at 2231", log)
