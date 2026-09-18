@@ -7,6 +7,23 @@ and this project follows [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+- Only one ping runs at a time. The label guard could not see a regular target
+  and a backup job both firing late after one wake, so the two retried the
+  same reopening in parallel and spent both retry budgets on one credit limit.
+  A second instance now waits up to `CLAUDE_SESSION_PING_LOCK_WAIT` (600s) for
+  the first, skips if that run left a verified window open, and otherwise
+  pings; it skips outright if the wait expires.
+- `/next`, the "next start" lines in `/status`, and the LLM prompt now report
+  what launchd will actually fire, read from the installed plists per question,
+  instead of the built-in 07:02/12:02/17:02/22:02 list — so a pending backup
+  is the answer when one is scheduled ("Next ping is a one-off backup at
+  19:12") and edited target times are followed after `./install.sh`.
+
+### Changed
+- The "next next" reply reads "The ping after next is at …" rather than "The
+  session window after next starts at …", since that ping may be a backup.
+
 ## [2.4.1] - 2026-08-25
 
 ### Fixed

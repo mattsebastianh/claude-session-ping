@@ -72,7 +72,8 @@ def format_usage_reply(usage: dict, now: int) -> str:
     return "\n".join(lines)
 
 
-def format_status_reply(usage: dict | None, window_start: int, status: str, now: int) -> str:
+def format_status_reply(usage: dict | None, window_start: int, status: str, now: int,
+                        targets: list[str] = TARGETS) -> str:
     """Whole-picture status: one labeled fact per line.
 
     Answers the broad "session info"/"overview"/"status" questions locally,
@@ -92,7 +93,7 @@ def format_status_reply(usage: dict | None, window_start: int, status: str, now:
     icon = "✅" if status == "success" else "⚠️"
     lines.append(f"{icon} Last ping: {status}")
 
-    starts = next_start_times(now)
+    starts = next_start_times(now, targets)
     if starts:
         lines.append(f"⏭️ Next start: {format_time(starts[0])}")
     if len(starts) > 1:
@@ -211,7 +212,109 @@ def next_start_times(now: int, targets: list[str] = TARGETS, count: int = 2) -> 
             if ts > now:
                 candidates.append(ts)
     candidates.sort()
-    return candidates[:count]
+    return sorted(set(candidates))[:count]
+
+
+# TARGETS is only the default schedule. The times launchd will actually fire
+# are whatever the installed plists say, and they routinely differ: a backup
+# job sits at an arbitrary HH:MM (window end + buffer), and the four targets
+# themselves move whenever the template is edited and ./install.sh re-run.
+# Answering /next from the constant reported 22:02 while launchd was really
+# going to fire a backup at 19:12. Read the schedule instead of assuming it.
+AGENT_LABEL = "com.claude-session-ping"
+
+
+def parse_calendar_targets(plist: dict) -> list[str]:
+    """The "HH:MM" times in a plist's StartCalendarInterval.
+
+    launchd accepts either a single dict or an array of them, and treats a
+    missing Hour/Minute as a wildcard — a wildcard Hour means "every hour",
+    which is not a fixed start time, so those entries are skipped rather than
+    guessed at.
+    """
+    interval = plist.get("StartCalendarInterval")
+    if isinstance(interval, dict):
+        interval = [interval]
+    if not isinstance(interval, list):
+        return []
+    times = []
+    for entry in interval:
+        if not isinstance(entry, dict):
+            continue
+        hour, minute = entry.get("Hour"), entry.get("Minute")
+        if not isinstance(hour, int) or not isinstance(minute, int):
+            continue
+        if not (0 <= hour <= 23 and 0 <= minute <= 59):
+            continue
+        times.append("%02d:%02d" % (hour, minute))
+    return times
+
+
+def scheduled_triggers(agent_dir, fallback: list[str] = TARGETS) -> list[tuple[str, str]]:
+    """(HH:MM, kind) for every installed agent, sorted; kind is target|backup.
+
+    Falls back to `fallback` when nothing can be read — an unreadable
+    LaunchAgents directory must degrade to the documented schedule, exactly
+    as a failed usage lookup degrades to it, not blank the answer.
+    """
+    import plistlib
+    from pathlib import Path
+
+    found: dict[str, str] = {}
+    try:
+        paths = sorted(Path(agent_dir).glob(AGENT_LABEL + "*.plist"))
+    except OSError:
+        paths = []
+    for path in paths:
+        # The Q&A daemon has its own agent and fires no ping.
+        if path.stem.endswith(".telegram-bot"):
+            continue
+        kind = "backup" if ".backup-" in path.name else "target"
+        try:
+            with open(path, "rb") as fh:
+                plist = plistlib.load(fh)
+        except (OSError, ValueError, plistlib.InvalidFileException):
+            continue
+        for hhmm in parse_calendar_targets(plist):
+            # A backup and a target at the same minute: the target is the
+            # recurring one, so let it win the label.
+            if found.get(hhmm) != "target":
+                found[hhmm] = kind
+    if not found:
+        return [(hhmm, "target") for hhmm in sorted(fallback)]
+    return sorted(found.items())
+
+
+def describe_triggers(triggers: list[tuple[str, str]]) -> str:
+    """"07:02, 12:02, 17:02, 22:02 (plus a one-off backup at 19:12)"."""
+    targets = [hhmm for hhmm, kind in triggers if kind == "target"]
+    backups = [hhmm for hhmm, kind in triggers if kind == "backup"]
+    text = ", ".join(targets) if targets else "none"
+    if backups:
+        noun = "backup" if len(backups) == 1 else "backups"
+        text += f" (plus a one-off {noun} at {', '.join(backups)})"
+    return text
+
+
+def trigger_kind(triggers: list[tuple[str, str]], epoch: int) -> str:
+    """Whether the trigger firing at `epoch` is a regular target or a backup."""
+    hhmm = format_time(epoch)
+    for candidate, kind in triggers:
+        if candidate == hhmm:
+            return kind
+    return "target"
+
+
+def describe_next_start(triggers: list[tuple[str, str]], epoch: int, now: int) -> str:
+    """One sentence naming when the next ping fires, and what kind it is.
+
+    Saying "backup" matters: it is a one-off covering a window that absorbed
+    its target, so unlike a target it will not be there tomorrow.
+    """
+    when = f"{format_time(epoch)} (in {humanize_delta(epoch - now)})"
+    if trigger_kind(triggers, epoch) == "backup":
+        return f"Next ping is a one-off backup at {when}."
+    return f"Next session window starts at {when}."
 
 
 INTENT_KEYWORDS = {

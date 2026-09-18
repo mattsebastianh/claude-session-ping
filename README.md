@@ -27,12 +27,14 @@ decide *when* to fire, only plain system scheduling and shell code.
   1. Checks the current time is at one of the four targets above, or up to
      65 minutes after one (`CLAUDE_SESSION_PING_GRACE_MINUTES`) — see
      [Sleep](#sleep) below.
-  2. Sends a keepalive ping (defaults to `claude -p "..."`).
-  3. If it detects a usage-limit/blocked response, retries up to **4 times**,
+  2. Takes a lock so only one ping runs at a time — see
+     [One ping at a time](#one-ping-at-a-time) below.
+  3. Sends a keepalive ping (defaults to `claude -p "..."`).
+  4. If it detects a usage-limit/blocked response, retries up to **4 times**,
      waiting 5 minutes between attempts (5 attempts total per window).
-  4. Logs everything to `logs/claude-session-ping.log` in the project
+  5. Logs everything to `logs/claude-session-ping.log` in the project
      directory (override with `CLAUDE_SESSION_PING_LOG`).
-  5. Asks Claude for the **real** usage window via `claude -p "/usage"` and
+  6. Asks Claude for the **real** usage window via `claude -p "/usage"` and
      reports the true start/end in notifications. That question fires the
      moment the ping returns, so it can arrive before the just-opened window
      has registered; if the answer is "no session", the script re-asks up to
@@ -142,6 +144,34 @@ itself, and the backup would fire in the same instant (a window ending 09:00
 puts the backup at 09:02 — exactly the 09:02 target), double-pinging and
 sending contradictory notifications.
 
+### One ping at a time
+
+A regular target and a backup can both fire late after the same wake — the
+grace window lets the target run up to 65 minutes after its minute, and a
+backup deferred by sleep lands in the same stretch. Without a guard they run
+side by side: on 2026-09-17 the 22:02 target and a 22:22 backup retried in
+parallel for three and a half hours, each spending its full retry budget on
+one credit limit, and the later one overwrote the other's state.
+
+The script now holds a lock (a directory under `.claude-session-ping/`) for
+the whole run. A second instance waits up to
+`CLAUDE_SESSION_PING_LOCK_WAIT` seconds (default 600) for the first to
+finish, then:
+
+- skips, if the run it waited for verified a window that is still open —
+  that run already scheduled or cleared the backup, so a second ping would
+  just be absorbed;
+- pings as normal otherwise (the first run failed, or could not verify);
+- skips outright if the wait runs out, on the reasoning that the holder is
+  still working the same reopening.
+
+A run killed mid-flight (SIGKILL, reboot, or the routine `launchctl remove`
+that reaps a backup job) leaves the lock behind; the next run notices the
+owner is gone and breaks it. There is deliberately no signal trap to clean
+up, because zsh would hold the process alive until its foreground command
+returned — keeping a reaped backup instance running inside `claude -p` for
+minutes after launchd meant to stop it.
+
 ## Install
 
 ```zsh
@@ -247,7 +277,13 @@ nothing about the existing behavior changes.
     back to a clearly-labeled schedule estimate if the lookup fails
   - "when did this window open?"
   - "when does this window end?"
-  - "what's the next session start time?" / "...next next...?"
+  - "what's the next session start time?" / "...next next...?" — read
+    from the launch agents actually installed in `~/Library/LaunchAgents`,
+    not the built-in schedule, so a pending [backup ping](#backup-ping) is
+    reported as the next trigger ("Next ping is a one-off backup at 19:12")
+    and edited target times are followed after `./install.sh`. The
+    schedule is re-read for every question, since backups come and go
+    while the daemon stays up.
 
   Anything else is sent to OpenRouter (`openai/gpt-oss-20b` by default,
   override with `OPENROUTER_MODEL`) along with the current schedule state
@@ -262,7 +298,7 @@ nothing about the existing behavior changes.
   | `/usage`  | Session + weekly usage           |
   | `/window` | When the current window opened   |
   | `/ends`   | When the current window ends     |
-  | `/next`   | Next session start time          |
+  | `/next`   | Next ping — target or backup     |
 
   A command is an explicit intent, so it skips keyword matching and never
   reaches OpenRouter.

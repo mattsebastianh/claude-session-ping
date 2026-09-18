@@ -2,7 +2,9 @@ import datetime
 import json
 import os
 import sys
+import tempfile
 import unittest
+from pathlib import Path
 from unittest.mock import patch
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
@@ -25,6 +27,35 @@ class NoRealUsageLookup(unittest.TestCase):
         usage_patch = patch.object(daemon, "get_usage", return_value=None)
         usage_patch.start()
         self.addCleanup(usage_patch.stop)
+        # An empty agent dir, so the schedule falls back to the documented
+        # TARGETS. Without this the answers would depend on whatever launchd
+        # happens to have installed on the machine running the suite — and
+        # would flip the moment a ping run scheduled a backup.
+        self.agent_dir = tempfile.TemporaryDirectory()
+        self.addCleanup(self.agent_dir.cleanup)
+        agent_patch = patch.object(daemon, "AGENT_DIR", Path(self.agent_dir.name))
+        agent_patch.start()
+        self.addCleanup(agent_patch.stop)
+
+    def write_agent(self, name, *hhmm):
+        """Install a stub launchd plist scheduling pings at `hhmm` times."""
+        entries = "".join(
+            "<dict><key>Hour</key><integer>%d</integer>"
+            "<key>Minute</key><integer>%d</integer></dict>"
+            % tuple(int(part) for part in t.split(":"))
+            for t in hhmm
+        )
+        path = Path(self.agent_dir.name) / name
+        path.write_text(
+            '<?xml version="1.0" encoding="UTF-8"?>'
+            '<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" '
+            '"http://www.apple.com/DTDs/PropertyList-1.0.dtd">'
+            '<plist version="1.0"><dict>'
+            "<key>Label</key><string>%s</string>"
+            "<key>StartCalendarInterval</key><array>%s</array>"
+            "</dict></plist>" % (path.stem, entries)
+        )
+        return path
 
 
 class TestAnswerQuestion(NoRealUsageLookup):
@@ -89,7 +120,7 @@ class TestAnswerQuestion(NoRealUsageLookup):
         now = int(datetime.datetime(2026, 7, 13, 20, 7, 0).timestamp())
         with patch.object(daemon, "load_state", return_value=EMPTY_STATE), patch("time.time", return_value=now):
             reply = daemon.answer_question({}, "and the one after that?")
-        self.assertEqual(reply, "The session window after next starts at 07:02 (in 10h 55m).")
+        self.assertEqual(reply, "The ping after next is at 07:02 (in 10h 55m).")
 
     def test_usage_lookup_failed_estimates_from_tracked_window(self):
         window_start = int(datetime.datetime(2026, 7, 13, 9, 0, 0).timestamp())
@@ -312,3 +343,98 @@ class TestFetchUsageAndWindow(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestNextTriggerFollowsTheInstalledSchedule(NoRealUsageLookup):
+    """/next must report what launchd will really fire, not the constant.
+
+    TARGETS is only the default. The times actually installed differ whenever
+    a backup is pending (an arbitrary HH:MM at window end + buffer) or the
+    plist template has been edited and ./install.sh re-run. Answering from the
+    constant reported 22:02 while a backup was about to fire at 19:12.
+    """
+
+    def ask(self, question, when):
+        with patch.object(daemon, "load_state", return_value=EMPTY_STATE), \
+             patch("time.time", return_value=int(when.timestamp())):
+            return daemon.answer_question({}, question)
+
+    def test_pending_backup_is_the_next_trigger(self):
+        self.write_agent("com.claude-session-ping.plist",
+                         "07:02", "12:02", "17:02", "22:02")
+        self.write_agent("com.claude-session-ping.backup-1912.plist", "19:12")
+        reply = self.ask("/next", datetime.datetime(2026, 7, 13, 18, 30, 0))
+        self.assertEqual(reply, "Next ping is a one-off backup at 19:12 (in 42m).")
+
+    def test_regular_target_is_not_called_a_backup(self):
+        self.write_agent("com.claude-session-ping.plist",
+                         "07:02", "12:02", "17:02", "22:02")
+        self.write_agent("com.claude-session-ping.backup-1912.plist", "19:12")
+        # Past the backup, so the next trigger is the ordinary 22:02 target.
+        reply = self.ask("/next", datetime.datetime(2026, 7, 13, 19, 30, 0))
+        self.assertEqual(reply, "Next session window starts at 22:02 (in 2h 32m).")
+
+    def test_edited_target_times_are_followed(self):
+        # The schedule tweaked to hourly-ish targets: /next must track it
+        # rather than answering from the 07/12/17/22 constant.
+        self.write_agent("com.claude-session-ping.plist",
+                         "06:30", "11:30", "16:30", "21:30")
+        reply = self.ask("/next", datetime.datetime(2026, 7, 13, 12, 0, 0))
+        self.assertEqual(reply, "Next session window starts at 16:30 (in 4h 30m).")
+
+    def test_next_next_skips_over_the_backup(self):
+        self.write_agent("com.claude-session-ping.plist",
+                         "07:02", "12:02", "17:02", "22:02")
+        self.write_agent("com.claude-session-ping.backup-1912.plist", "19:12")
+        reply = self.ask("and the one after that?",
+                         datetime.datetime(2026, 7, 13, 18, 30, 0))
+        self.assertEqual(reply, "The ping after next is at 22:02 (in 3h 32m).")
+
+    def test_status_reply_uses_the_installed_schedule(self):
+        self.write_agent("com.claude-session-ping.plist",
+                         "07:02", "12:02", "17:02", "22:02")
+        self.write_agent("com.claude-session-ping.backup-1912.plist", "19:12")
+        reply = self.ask("/status", datetime.datetime(2026, 7, 13, 18, 30, 0))
+        self.assertIn("⏭️ Next start: 19:12", reply)
+        self.assertIn("⏭️ Then: 22:02", reply)
+
+    def test_the_daemons_own_agent_is_not_a_ping_trigger(self):
+        # The Q&A bot's plist lives in the same directory and shares the
+        # label prefix, but it is a long-poll daemon, not a scheduled ping.
+        self.write_agent("com.claude-session-ping.plist", "07:02", "12:02")
+        self.write_agent("com.claude-session-ping.telegram-bot.plist", "03:00")
+        reply = self.ask("/next", datetime.datetime(2026, 7, 13, 1, 0, 0))
+        self.assertEqual(reply, "Next session window starts at 07:02 (in 6h 2m).")
+
+    def test_schedule_is_reread_for_every_question(self):
+        # The daemon outlives the backups it reports on: ping runs create and
+        # reap them while this process stays up, so a cached schedule would
+        # go stale. (The 2026-08-25 lesson, in the other direction: a
+        # long-running daemon holding old data looks like a broken feature.)
+        self.write_agent("com.claude-session-ping.plist", "07:02", "22:02")
+        at = datetime.datetime(2026, 7, 13, 18, 30, 0)
+        self.assertEqual(self.ask("/next", at),
+                         "Next session window starts at 22:02 (in 3h 32m).")
+
+        backup = self.write_agent("com.claude-session-ping.backup-1912.plist", "19:12")
+        self.assertEqual(self.ask("/next", at),
+                         "Next ping is a one-off backup at 19:12 (in 42m).")
+
+        backup.unlink()
+        self.assertEqual(self.ask("/next", at),
+                         "Next session window starts at 22:02 (in 3h 32m).")
+
+    def test_unreadable_agent_dir_falls_back_to_the_documented_targets(self):
+        # Same degradation rule as a failed usage lookup: fall back to the
+        # schedule, never blank the answer.
+        with patch.object(daemon, "AGENT_DIR", Path("/nonexistent/LaunchAgents")):
+            reply = self.ask("/next", datetime.datetime(2026, 7, 13, 20, 7, 0))
+        self.assertEqual(reply, "Next session window starts at 22:02 (in 1h 55m).")
+
+    def test_corrupt_plist_is_skipped_not_fatal(self):
+        self.write_agent("com.claude-session-ping.plist", "07:02", "22:02")
+        (Path(self.agent_dir.name) / "com.claude-session-ping.backup-1912.plist").write_text(
+            "this is not a plist"
+        )
+        reply = self.ask("/next", datetime.datetime(2026, 7, 13, 18, 30, 0))
+        self.assertEqual(reply, "Next session window starts at 22:02 (in 3h 32m).")

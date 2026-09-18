@@ -32,8 +32,11 @@ from telegram_qa_lib import (  # noqa: E402
     format_usage_reply,
     humanize_delta,
     match_intent,
+    describe_next_start,
+    describe_triggers,
     next_start_times,
     parse_env_text,
+    scheduled_triggers,
     usage_percent,
     usage_prompt_line,
     window_end,
@@ -43,6 +46,8 @@ from usage_lib import derive_window_start  # noqa: E402
 ROOT = Path(__file__).resolve().parents[1]
 ENV_FILE = Path(os.environ.get("CLAUDE_SESSION_PING_ENV_FILE", str(ROOT / ".env")))
 STATE_FILE = Path(os.environ.get("CLAUDE_SESSION_PING_STATE_FILE", str(ROOT / ".claude-session-ping" / "state.json")))
+AGENT_DIR = Path(os.environ.get(
+    "CLAUDE_SESSION_PING_BACKUP_DIR", str(Path.home() / "Library" / "LaunchAgents")))
 LOG_FILE = Path(os.environ.get(
     "CLAUDE_SESSION_PING_TELEGRAM_BOT_LOG",
     str(Path(__file__).resolve().parents[1] / "logs" / "claude-session-ping-telegram-bot.log"),
@@ -140,7 +145,8 @@ def get_updates(token: str, offset: int | None) -> tuple[list[dict], str, str | 
 
 def openrouter_answer(api_key: str, model: str, state: dict, question: str, window_start: int = 0, usage: dict | None = None) -> str:
     now = int(time.time())
-    starts = next_start_times(now)
+    triggers = scheduled_triggers(AGENT_DIR)
+    starts = next_start_times(now, [hhmm for hhmm, _ in triggers])
     if window_start:
         window_desc = (
             f"opened_at={format_time(window_start)}, "
@@ -151,7 +157,7 @@ def openrouter_answer(api_key: str, model: str, state: dict, question: str, wind
         window_desc = "none active"
     system_prompt = (
         "You are a status bot for a Claude Code keepalive scheduler. "
-        "Daily windows open at 07:02, 12:02, 17:02, 22:02 and each stays active for 5 hours. "
+        f"Scheduled pings: {describe_triggers(triggers)}. Each window stays active for 5 hours. "
         f"Current window: {window_desc}, "
         f"last_ping_status={state.get('status')}. "
         f"Next start: {format_time(starts[0]) if starts else 'unknown'}. "
@@ -225,31 +231,36 @@ def fetch_usage_and_window(now: int) -> tuple[dict | None, int]:
 def answer_question(env: dict, question: str) -> str:
     state = load_state()
     now = int(time.time())
+    # Read the schedule per question rather than caching it: the daemon is
+    # long-running, and the backup agent it must report on is created and
+    # reaped by ping runs while this process stays up.
+    triggers = scheduled_triggers(AGENT_DIR)
+    targets = [hhmm for hhmm, _ in triggers]
     # A slash command is an explicit intent, so it bypasses keyword matching
     # (and never reaches the LLM fallback).
     intent = command_intent(question) or match_intent(question)
 
     # Answered from the schedule alone, so skip the usage lookup's subprocess.
     if intent == "next_start":
-        starts = next_start_times(now)
+        starts = next_start_times(now, targets)
         if not starts:
             return "I couldn't work out the next session start time."
-        return f"Next session window starts at {format_time(starts[0])} (in {humanize_delta(starts[0] - now)})."
+        return describe_next_start(triggers, starts[0], now)
     if intent == "next_next_start":
-        starts = next_start_times(now)
+        starts = next_start_times(now, targets)
         if len(starts) < 2:
             return "I couldn't work out the session start time after next."
-        return f"The session window after next starts at {format_time(starts[1])} (in {humanize_delta(starts[1] - now)})."
+        return f"The ping after next is at {format_time(starts[1])} (in {humanize_delta(starts[1] - now)})."
 
     usage, window_start = fetch_usage_and_window(now)
 
     if intent == "status":
-        return format_status_reply(usage, window_start, str(state.get("status", "unknown")), now)
+        return format_status_reply(usage, window_start, str(state.get("status", "unknown")), now, targets)
     if intent == "usage":
         if usage:
             return format_usage_reply(usage, now)
         if not window_start:
-            starts = next_start_times(now)
+            starts = next_start_times(now, targets)
             nxt = f" Next one starts at {format_time(starts[0])}." if starts else ""
             return f"No session window is active right now.{nxt}"
         pct = usage_percent(window_start, now)
@@ -259,7 +270,7 @@ def answer_question(env: dict, question: str) -> str:
         )
     if intent == "window_open":
         if not window_start:
-            starts = next_start_times(now)
+            starts = next_start_times(now, targets)
             nxt = f" Next one starts at {format_time(starts[0])}." if starts else ""
             return f"No session window is active right now.{nxt}"
         return f"Current window opened at {format_time(window_start)} ({humanize_delta(now - window_start)} ago)."

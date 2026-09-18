@@ -22,7 +22,9 @@ from telegram_qa_lib import (
     format_usage_reply,
     humanize_delta,
     match_intent,
+    describe_triggers,
     next_start_times,
+    parse_calendar_targets,
     parse_env_text,
     usage_percent,
     usage_prompt_line,
@@ -447,3 +449,57 @@ class TestParseEnvText(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestParseCalendarTargets(unittest.TestCase):
+    def test_reads_an_array_of_intervals(self):
+        plist = {"StartCalendarInterval": [
+            {"Hour": 7, "Minute": 2}, {"Hour": 22, "Minute": 2}]}
+        self.assertEqual(parse_calendar_targets(plist), ["07:02", "22:02"])
+
+    def test_reads_a_bare_dict(self):
+        # launchd accepts a single dict as well as an array; the backup
+        # plists the ping script writes use the array form, but a
+        # hand-edited one may not.
+        plist = {"StartCalendarInterval": {"Hour": 19, "Minute": 12}}
+        self.assertEqual(parse_calendar_targets(plist), ["19:12"])
+
+    def test_wildcard_hour_is_not_a_start_time(self):
+        # A missing Hour means "every hour" to launchd. That is a real
+        # schedule but not a single start time, so it must be skipped rather
+        # than guessed at as midnight.
+        plist = {"StartCalendarInterval": [{"Minute": 2}, {"Hour": 7, "Minute": 2}]}
+        self.assertEqual(parse_calendar_targets(plist), ["07:02"])
+
+    def test_out_of_range_values_are_dropped(self):
+        plist = {"StartCalendarInterval": [{"Hour": 25, "Minute": 2}]}
+        self.assertEqual(parse_calendar_targets(plist), [])
+
+    def test_missing_key_is_empty(self):
+        self.assertEqual(parse_calendar_targets({"Label": "x"}), [])
+
+
+class TestDescribeTriggers(unittest.TestCase):
+    def test_targets_only(self):
+        triggers = [("07:02", "target"), ("12:02", "target")]
+        self.assertEqual(describe_triggers(triggers), "07:02, 12:02")
+
+    def test_names_a_pending_backup_separately(self):
+        triggers = [("07:02", "target"), ("19:12", "backup")]
+        self.assertEqual(
+            describe_triggers(triggers), "07:02 (plus a one-off backup at 19:12)"
+        )
+
+    def test_pluralizes_multiple_backups(self):
+        triggers = [("07:02", "target"), ("19:12", "backup"), ("23:40", "backup")]
+        self.assertIn("one-off backups at 19:12, 23:40", describe_triggers(triggers))
+
+
+class TestNextStartTimesDeduplicates(unittest.TestCase):
+    def test_a_backup_landing_on_a_target_is_one_start(self):
+        # backup_schedule.py suppresses a backup a target already covers, but
+        # a stale plist can still duplicate the minute; listing it twice would
+        # make "next" and "then" the same time.
+        now = int(datetime.datetime(2026, 7, 13, 11, 0, 0).timestamp())
+        starts = next_start_times(now, ["12:02", "12:02", "17:02"])
+        self.assertEqual([format_time(s) for s in starts], ["12:02", "17:02"])
