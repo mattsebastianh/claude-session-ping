@@ -8,6 +8,7 @@ These cover the scheduling guard, which is not exercised by the pure Python
 tests but is where a missed keepalive costs a whole 5-hour window.
 """
 import os
+import plistlib
 import subprocess
 import sys
 import tempfile
@@ -27,6 +28,16 @@ class PingScriptCase(unittest.TestCase):
         self.addCleanup(self.tmp.cleanup)
         self.state_file = Path(self.tmp.name) / "state.json"
         self.log_file = Path(self.tmp.name) / "ping.log"
+        # Default isolation for every run of the script. Without it the script
+        # globs the real ~/Library/LaunchAgents/com.claude-session-ping.backup-*
+        # plists, deletes them and `launchctl remove`s their labels, which wiped a
+        # live pending backup job (2026-10-01). Tests that inspect launchctl or
+        # the backup dir override both via _backup_env().
+        self.default_launchctl = Path(self.tmp.name) / "launchctl_noop.sh"
+        self.default_launchctl.write_text("#!/usr/bin/env zsh\nexit 0\n")
+        self.default_launchctl.chmod(0o755)
+        self.default_backup_dir = Path(self.tmp.name) / "agents_default"
+        self.default_backup_dir.mkdir()
 
     def build_env(self, mock_time, usage="USAGE_OK=0", grace=None, backup_label=None,
                   extra_env=None):
@@ -47,6 +58,8 @@ class PingScriptCase(unittest.TestCase):
             "CLAUDE_SESSION_PING_ENV_FILE": "/dev/null",
             "CLAUDE_SESSION_PING_STATE_FILE": str(self.state_file),
             "CLAUDE_SESSION_PING_LOG": str(self.log_file),
+            "CLAUDE_SESSION_PING_LAUNCHCTL": str(self.default_launchctl),
+            "CLAUDE_SESSION_PING_BACKUP_DIR": str(self.default_backup_dir),
         }
         if grace is not None:
             env["CLAUDE_SESSION_PING_GRACE_MINUTES"] = str(grace)
@@ -450,6 +463,11 @@ class TestBackupMode(PingScriptCase):
         self.assertEqual(len(plists), 1)
         self.assertIn("backup-1732", plists[0].name)
         self.assertIn("load", calls.read_text())
+        # Login Items & Extensions names a job after the file it launches, so the
+        # plist must run the named launcher, not `env zsh claude_session_ping.sh`.
+        with plists[0].open("rb") as fh:
+            program = plistlib.load(fh)["ProgramArguments"]
+        self.assertEqual(program, [str(ROOT / "scripts" / "claude-session-ping-backup")])
 
     def test_new_window_clears_backups(self):
         env, calls, backup_dir = self._backup_env()
