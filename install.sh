@@ -8,7 +8,7 @@ PLIST_DEST="$HOME/Library/LaunchAgents/com.claude-session-ping.plist"
 mkdir -p "$HOME/Library/LaunchAgents" "$ROOT/logs"
 sed -e "s|{{PROJECT_DIR}}|$ROOT|g" -e "s|{{HOME_DIR}}|$HOME|g" -e "s|{{USER}}|$USER|g" "$PLIST_TEMPLATE" >"$PLIST_DEST"
 chmod 644 "$PLIST_DEST"
-chmod +x "$ROOT/scripts/claude_session_ping.sh"
+chmod +x "$ROOT/scripts/claude_session_ping.sh" "$ROOT/scripts/claude-session-ping" "$ROOT/scripts/claude-session-ping-backup"
 
 launchctl unload "$PLIST_DEST" 2>/dev/null || true
 launchctl load "$PLIST_DEST"
@@ -28,7 +28,7 @@ if [[ -f "$ENV_FILE" ]] && grep -qE '^TELEGRAM_BOT_TOKEN=.+' "$ENV_FILE" && grep
   BOT_PLIST_DEST="$HOME/Library/LaunchAgents/com.claude-session-ping.telegram-bot.plist"
   sed -e "s|{{PROJECT_DIR}}|$ROOT|g" -e "s|{{HOME_DIR}}|$HOME|g" -e "s|{{USER}}|$USER|g" "$BOT_PLIST_TEMPLATE" >"$BOT_PLIST_DEST"
   chmod 644 "$BOT_PLIST_DEST"
-  chmod +x "$ROOT/scripts/telegram_qa_daemon.py"
+  chmod +x "$ROOT/scripts/telegram_qa_daemon.py" "$ROOT/scripts/claude-session-ping-telegram-bot"
 
   launchctl unload "$BOT_PLIST_DEST" 2>/dev/null || true
   launchctl load "$BOT_PLIST_DEST"

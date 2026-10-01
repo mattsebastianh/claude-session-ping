@@ -7,7 +7,7 @@
 
   <key>ProgramArguments</key>
   <array>
-    <string>{{PROJECT_DIR}}/scripts/claude_session_ping.sh</string>
+    <string>{{PROJECT_DIR}}/scripts/claude-session-ping</string>
   </array>
 
   <key>EnvironmentVariables</key>

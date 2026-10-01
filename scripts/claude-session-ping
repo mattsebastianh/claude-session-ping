@@ -1,0 +1,5 @@
+#!/usr/bin/env zsh
+# launchd entry point for the scheduled keepalive ping. It exists only so macOS
+# Login Items & Extensions lists the job as "claude-session-ping" instead of
+# "claude_session_ping.sh"; exec keeps launchd supervising the same process.
+exec "${0:A:h}/claude_session_ping.sh" "$@"

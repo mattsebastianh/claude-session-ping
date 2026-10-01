@@ -1,0 +1,5 @@
+#!/usr/bin/env zsh
+# launchd entry point for the one-shot backup-ping jobs written by
+# claude_session_ping.sh (com.claude-session-ping.backup-HHMM). Separate from
+# claude-session-ping so Login Items & Extensions tells the two apart.
+exec "${0:A:h}/claude_session_ping.sh" "$@"

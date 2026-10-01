@@ -38,6 +38,9 @@ BACKUP_DIR="${CLAUDE_SESSION_PING_BACKUP_DIR:-$HOME/Library/LaunchAgents}"
 LAUNCHCTL="${CLAUDE_SESSION_PING_LAUNCHCTL:-launchctl}"
 SCRIPT_PATH="$(cd "$(dirname "$0")" && pwd)/$(basename "$0")"
 BACKUP_HELPER="$(cd "$(dirname "$0")" && pwd)/backup_schedule.py"
+# What backup plists launch: a launcher that execs this script, so Login Items
+# names the job claude-session-ping-backup rather than claude_session_ping.sh.
+BACKUP_LAUNCHER="$(cd "$(dirname "$0")" && pwd)/claude-session-ping-backup"
 
 # Real wall clock, never the mock: used to tell state this run wrote from
 # state another run wrote while this one waited for the lock.
@@ -339,7 +342,7 @@ schedule_backup() {
   <string>com.claude-session-ping.backup-${BACKUP_HHMM//:/}</string>
   <key>ProgramArguments</key>
   <array>
-    <string>${SCRIPT_PATH}</string>
+    <string>${BACKUP_LAUNCHER}</string>
   </array>
   <key>EnvironmentVariables</key>
   <dict>

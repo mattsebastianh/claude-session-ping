@@ -7,7 +7,7 @@
 
   <key>ProgramArguments</key>
   <array>
-    <string>{{PROJECT_DIR}}/scripts/telegram_qa_daemon.py</string>
+    <string>{{PROJECT_DIR}}/scripts/claude-session-ping-telegram-bot</string>
   </array>
 
   <!-- launchd's default PATH is /usr/bin:/bin:/usr/sbin:/sbin, which does not

@@ -1,0 +1,6 @@
+#!/usr/bin/env zsh
+# launchd entry point for the Telegram Q&A daemon. It exists only so macOS
+# Login Items & Extensions lists the job as "claude-session-ping-telegram-bot"
+# instead of "telegram_qa_daemon.py"; exec makes the daemon the job's own
+# process, so launchd supervises it exactly as before.
+exec /usr/bin/env python3 "${0:A:h}/telegram_qa_daemon.py" "$@"
