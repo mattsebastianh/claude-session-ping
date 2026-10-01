@@ -7,8 +7,6 @@
 
   <key>ProgramArguments</key>
   <array>
-    <string>/usr/bin/env</string>
-    <string>python3</string>
     <string>{{PROJECT_DIR}}/scripts/telegram_qa_daemon.py</string>
   </array>
 

@@ -339,8 +339,6 @@ schedule_backup() {
   <string>com.claude-session-ping.backup-${BACKUP_HHMM//:/}</string>
   <key>ProgramArguments</key>
   <array>
-    <string>/usr/bin/env</string>
-    <string>zsh</string>
     <string>${SCRIPT_PATH}</string>
   </array>
   <key>EnvironmentVariables</key>

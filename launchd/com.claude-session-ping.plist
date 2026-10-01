@@ -7,8 +7,6 @@
 
   <key>ProgramArguments</key>
   <array>
-    <string>/usr/bin/env</string>
-    <string>zsh</string>
     <string>{{PROJECT_DIR}}/scripts/claude_session_ping.sh</string>
   </array>
 
