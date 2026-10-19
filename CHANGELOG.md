@@ -7,13 +7,24 @@ and this project follows [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [2.5.1] - 2026-10-18
+
 ### Changed
+- Launch agents now run through named launchers (`scripts/claude-session-ping`,
+  `claude-session-ping-backup`, `claude-session-ping-telegram-bot`), so macOS
+  Login Items & Extensions lists the jobs by project name instead of "env".
+  Re-run `./install.sh` to pick this up.
 - `logs/` now ships as an empty directory (`logs/.gitkeep`) while its log
   files stay ignored, so a fresh clone has the default log location in place.
 - `.gitignore` covers only what every checkout produces (`.env`, runtime state,
   logs, Python caches); per-machine scratch such as `docs/` and editor folders
   belongs in `.git/info/exclude`, so the README no longer says `docs/` is
   ignored for every clone.
+
+### Fixed
+- Running the test suite no longer deletes real pending backup jobs: the
+  ping-script tests ran `launchctl remove` against `~/Library/LaunchAgents`, and
+  now use a temp agent dir and a stubbed `launchctl`.
 
 ## [2.5.0] - 2026-09-18
 
@@ -216,7 +227,8 @@ Initial release: a `launchd`-based keepalive ping, no LLM required to decide
   retries on a usage-limit/blocked response.
 - `install.sh`, MIT license, initial README.
 
-[Unreleased]: https://github.com/mattsebastianh/claude-session-ping/compare/v2.5.0...HEAD
+[Unreleased]: https://github.com/mattsebastianh/claude-session-ping/compare/v2.5.1...HEAD
+[2.5.1]: https://github.com/mattsebastianh/claude-session-ping/compare/v2.5.0...v2.5.1
 [2.5.0]: https://github.com/mattsebastianh/claude-session-ping/compare/v2.4.1...v2.5.0
 [2.4.1]: https://github.com/mattsebastianh/claude-session-ping/compare/v2.4.0...v2.4.1
 [2.4.0]: https://github.com/mattsebastianh/claude-session-ping/compare/v2.3.1...v2.4.0
