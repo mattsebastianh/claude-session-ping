@@ -341,10 +341,9 @@ rm ~/Library/LaunchAgents/com.claude-session-ping.telegram-bot.plist
 All secrets (Telegram bot token, chat id, OpenRouter API key) live only in
 the project's `.env` file, or wherever `CLAUDE_SESSION_PING_ENV_FILE` points
 if you override it — both are gitignored and never committed. The
-`logs/`, `.claude-session-ping/` (runtime logs and schedule state), and
-`docs/` (design docs/specs/plans) directories are also gitignored —
-`docs/` is kept purely as local, private scratch space and is never
-pushed.
+runtime output is gitignored too: `logs/` ships empty and its log files
+are never committed, and `.claude-session-ping/` (schedule state and the
+run lock) is ignored entirely.
 
 ## Changelog
 

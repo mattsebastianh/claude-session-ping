@@ -7,6 +7,14 @@ and this project follows [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Changed
+- `logs/` now ships as an empty directory (`logs/.gitkeep`) while its log
+  files stay ignored, so a fresh clone has the default log location in place.
+- `.gitignore` covers only what every checkout produces (`.env`, runtime state,
+  logs, Python caches); per-machine scratch such as `docs/` and editor folders
+  belongs in `.git/info/exclude`, so the README no longer says `docs/` is
+  ignored for every clone.
+
 ## [2.5.0] - 2026-09-18
 
 ### Fixed
