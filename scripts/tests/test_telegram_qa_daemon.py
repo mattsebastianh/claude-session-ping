@@ -181,6 +181,22 @@ class TestStatusIntent(NoRealUsageLookup):
             reply = daemon.answer_question({}, "/next")
         self.assertEqual(reply, "Next session window starts at 22:02 (in 1h 55m).")
 
+    def test_slash_command_beats_keywords_in_its_arguments(self):
+        # command_intent ignores trailing arguments, but match_intent reads
+        # them: "when does it end" alone is a window_end question. The command
+        # is the explicit intent, so it must win. The /status and /next tests
+        # can't pin this: /status's keywords agree with the command, and /next
+        # matches no keyword at all, so keywords-first routing that falls back
+        # to the command on "none" would still pass them.
+        now = int(datetime.datetime(2026, 7, 13, 20, 7, 0).timestamp())
+        with patch.object(daemon, "load_state", return_value=EMPTY_STATE), patch("time.time", return_value=now):
+            reply = daemon.answer_question({}, "/usage when does it end")
+        self.assertEqual(
+            reply,
+            "⚠️ Couldn't fetch live usage. Estimate from schedule:\n"
+            "📊 Session window ~62% elapsed — ends around 22:02",
+        )
+
 
 class TestFallbackPaths(NoRealUsageLookup):
     def test_unrecognized_question_without_api_key(self):
