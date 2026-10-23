@@ -227,17 +227,17 @@ Initial release: a `launchd`-based keepalive ping, no LLM required to decide
   retries on a usage-limit/blocked response.
 - `install.sh`, MIT license, initial README.
 
-[Unreleased]: https://github.com/mattsebastianh/claude-session-ping/compare/v2.5.1...HEAD
-[2.5.1]: https://github.com/mattsebastianh/claude-session-ping/compare/v2.5.0...v2.5.1
-[2.5.0]: https://github.com/mattsebastianh/claude-session-ping/compare/v2.4.1...v2.5.0
-[2.4.1]: https://github.com/mattsebastianh/claude-session-ping/compare/v2.4.0...v2.4.1
-[2.4.0]: https://github.com/mattsebastianh/claude-session-ping/compare/v2.3.1...v2.4.0
-[2.3.1]: https://github.com/mattsebastianh/claude-session-ping/compare/v2.3.0...v2.3.1
-[2.3.0]: https://github.com/mattsebastianh/claude-session-ping/compare/v2.2.2...v2.3.0
-[2.2.2]: https://github.com/mattsebastianh/claude-session-ping/compare/v2.2.1...v2.2.2
-[2.2.1]: https://github.com/mattsebastianh/claude-session-ping/compare/v2.2.0...v2.2.1
-[2.2.0]: https://github.com/mattsebastianh/claude-session-ping/compare/v2.1.0...v2.2.0
-[2.1.0]: https://github.com/mattsebastianh/claude-session-ping/compare/v2.0.1...v2.1.0
-[2.0.1]: https://github.com/mattsebastianh/claude-session-ping/compare/v2.0.0...v2.0.1
-[2.0.0]: https://github.com/mattsebastianh/claude-session-ping/compare/v1.0.0...v2.0.0
-[1.0.0]: https://github.com/mattsebastianh/claude-session-ping/releases/tag/v1.0.0
+[Unreleased]: https://github.com/lambdamax/claude-session-ping/compare/v2.5.1...HEAD
+[2.5.1]: https://github.com/lambdamax/claude-session-ping/compare/v2.5.0...v2.5.1
+[2.5.0]: https://github.com/lambdamax/claude-session-ping/compare/v2.4.1...v2.5.0
+[2.4.1]: https://github.com/lambdamax/claude-session-ping/compare/v2.4.0...v2.4.1
+[2.4.0]: https://github.com/lambdamax/claude-session-ping/compare/v2.3.1...v2.4.0
+[2.3.1]: https://github.com/lambdamax/claude-session-ping/compare/v2.3.0...v2.3.1
+[2.3.0]: https://github.com/lambdamax/claude-session-ping/compare/v2.2.2...v2.3.0
+[2.2.2]: https://github.com/lambdamax/claude-session-ping/compare/v2.2.1...v2.2.2
+[2.2.1]: https://github.com/lambdamax/claude-session-ping/compare/v2.2.0...v2.2.1
+[2.2.0]: https://github.com/lambdamax/claude-session-ping/compare/v2.1.0...v2.2.0
+[2.1.0]: https://github.com/lambdamax/claude-session-ping/compare/v2.0.1...v2.1.0
+[2.0.1]: https://github.com/lambdamax/claude-session-ping/compare/v2.0.0...v2.0.1
+[2.0.0]: https://github.com/lambdamax/claude-session-ping/compare/v1.0.0...v2.0.0
+[1.0.0]: https://github.com/lambdamax/claude-session-ping/releases/tag/v1.0.0
